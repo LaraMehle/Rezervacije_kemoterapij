@@ -1,0 +1,632 @@
+/* Filter and dropdown styles */
+.filter-container {
+    width: 100% !important;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.room-filter {
+    width: 100% !important;
+    max-width: none !important;
+    flex-grow: 1;
+}
+/* Date picker styles */
+#datePicker {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+/* Calendar container */
+.calendar-container {
+    position: relative;
+    z-index: 1;
+    margin-top: 10px;
+    overflow-x: auto;
+    background-color: #ffffff;
+}
+
+/* Table styles */
+.calendar-container table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 13px;
+    background-color: #ffffff;
+}
+
+.calendar-container th {
+    background-color: #ffffff;
+    border: 1px solid #ddd;
+    padding: 8px 4px;
+    text-align: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    font-weight: normal;
+}
+
+.calendar-container th:first-child {
+    text-align: left;
+    width: 200px;
+    z-index: 15;
+    font-weight: bold;
+}
+
+.calendar-container td {
+    border: 1px solid #ddd;
+    padding: 8px 5px;
+    height: 40px;
+    background-color: #ffffff;
+}
+
+.calendar-container td:first-child {
+    position: sticky;
+    left: 0;
+    background-color: white;
+    z-index: 5;
+    font-weight: bold;
+    border-right: 1px solid #ccc;
+}
+
+/* Department separator */
+.department-separator {
+    padding: 5px 10px;
+    font-weight: bold;
+    color: #333;
+    background-color: #f9f9f9;
+    border-bottom: 1px solid #ddd;
+}
+
+/* Select2 styling */
+.select2-container {
+    z-index: 100% !important;
+}
+
+.select2-dropdown {
+    z-index: 100% !important;
+}
+
+.select2-container--default .select2-selection--multiple {
+    min-height: 38px;
+    border: 1px solid #ccc;
+}
+.select2-results__options {
+    display: flex;
+    flex-wrap: wrap;
+}
+  
+.select2-results__option {
+    flex: 1 0 50%;
+    max-width: 50%;
+    box-sizing: border-box;
+    padding: 6px 12px !important;
+}
+
+.select2-container--default .select2-results__group {
+    padding: 8px 12px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.select2-container--default .select2-results__option {
+    padding: 6px 12px;
+}
+
+.select2-container--default .select2-results__option.department-option {
+    font-weight: bold;
+    color: #444;
+    padding-left: 12px;
+}
+
+.select2-container--default .select2-results__option.room-option {
+    padding-left: 20px;
+    font-weight: bold;
+    color: #444;
+}
+
+.select2-container--default .select2-results__option.bed-option {
+    padding-left: 40px;
+    color: #666;
+}
+
+.select2-container--default .select2-results__option--highlighted[aria-selected] {
+    background-color: #007bff;
+    color: white !important;
+}
+
+.select2-container--default .select2-selection--multiple .select2-selection__choice {
+    background-color: #007bff;
+    border: none;
+    color: white;
+    padding: 2px 8px;
+    margin: 4px;
+    border-radius: 4px;
+}
+
+.select2-container--default .select2-selection__choice__remove {
+    color: white;
+    margin-right: 5px;
+}
+
+/* Department colors */
+.department-AKT {
+    border-left: 4px solid #87CEEB !important;
+}
+
+.department-DHL {
+    border-left: 4px solid #66D9A3 !important;
+}
+
+.department-DHD {
+    border-left: 4px solid #FF9999 !important;
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+    .filter-container {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .calendar-container th,
+    .calendar-container td {
+        padding: 5px 2px;
+        font-size: 12px;
+    }
+    
+    .calendar-container th:first-child,
+    .calendar-container td:first-child {
+        width: 150px;
+    }
+}
+
+/* Delete button hover state */
+.delete-btn:hover {
+    background-color: #c82333 !important;
+}
+
+/* Delete button when disabled */
+.delete-btn:disabled {
+    background-color: #dc3545;
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+/* Appointment ID style */
+.appointment-id {
+    font-family: monospace;
+    background: #f8f9fa;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+/* Modal buttons container */
+.modal-footer {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid #eee;
+    padding-top: 15px;
+    margin-top: 10px;
+}
+
+/* Confirmation dialog styling */
+.confirm-dialog {
+    padding: 20px;
+    background: white;
+    border-radius: 5px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    max-width: 90%;
+    width: 400px;
+}
+
+.confirm-dialog h3 {
+    margin-top: 0;
+    color: #dc3545;
+}
+
+.confirm-dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+/* Calendar headers - stick below WordPress admin bar */
+.calendar-container th {
+    position: sticky;
+    z-index: 100;
+    background-color: #ffffff;
+}
+
+/* Only for WordPress admin environment */
+body.wp-admin .calendar-container th {
+    top: 32px; 
+}
+
+/* Handle the mobile admin bar (smaller height) */
+@media screen and (max-width: 782px) {
+    body.wp-admin .calendar-container th {
+        top: 46px;
+    }
+}
+
+body:not(.wp-admin) .calendar-container th {
+    top: 0;
+}
+
+.calendar-container th {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.calendar-container {
+    overflow-x: auto;
+    overflow-y: auto;
+    max-height: calc(100vh - 100px);
+    position: relative;
+    padding-top: 1px;
+}
+
+/* Style for the container when WordPress admin bar is present */
+body.wp-admin .calendar-container {
+    max-height: calc(100vh - 130px);
+}
+
+.amelia-login-required {
+    max-width: 400px;
+    margin: 50px auto;
+    padding: 30px;
+    background-color: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.amelia-login-required p {
+    text-align: center;
+    color: #333;
+    font-size: 18px;
+    margin-bottom: 25px;
+    font-weight: 500;
+}
+
+.amelia-login-required form {
+    display: flex;
+    flex-direction: column;
+}
+
+.amelia-login-required .user-login-username,
+.amelia-login-required .user-login-password {
+    margin-bottom: 15px;
+}
+
+.amelia-login-required label {
+    margin-bottom: 5px;
+    color: #666;
+    font-weight: 500;
+}
+
+.amelia-login-required input[type="text"],
+.amelia-login-required input[type="password"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+    transition: border-color 0.3s ease;
+}
+
+.amelia-login-required input[type="text"]:focus,
+.amelia-login-required input[type="password"]:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 5px rgba(0, 123, 255, 0.2);
+}
+
+.amelia-login-required .user-remember-me {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.amelia-login-required .user-remember-me label {
+    margin-left: 8px;
+    margin-bottom: 0;
+    color: #666;
+    font-weight: 400;
+}
+
+.amelia-login-required .user-submit {
+    text-align: center;
+}
+
+.amelia-login-required .user-submit input[type="submit"] {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 4px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.amelia-login-required .user-submit input[type="submit"]:hover {
+    background-color: #0056b3;
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+    .amelia-login-required {
+        max-width: 95%;
+        margin: 20px auto;
+        padding: 20px;
+    }
+}
+
+.amelia-login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-color: #f4f6f9;
+    padding: 20px;
+}
+
+.amelia-login-wrapper {
+    width: 100%;
+    max-width: 320px;
+    padding: 26px 24px 46px;
+    background: white;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.amelia-login-wrapper h2 {
+    text-align: center;
+    color: #333;
+    margin-bottom: 30px;
+}
+
+.amelia-form-group {
+    margin-bottom: 20px;
+}
+
+.amelia-form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: #666;
+}
+
+.amelia-form-control {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+.amelia-form-control:focus {
+    outline: none;
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+}
+
+.amelia-checkbox {
+    display: flex;
+    align-items: center;
+}
+
+.amelia-checkbox input {
+    margin-right: 10px;
+}
+
+.amelia-btn {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.amelia-btn-primary {
+    background-color: #007bff;
+    color: white;
+}
+
+.amelia-btn-primary:hover {
+    background-color: #0056b3;
+}
+
+.amelia-login-links {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.amelia-login-links a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.amelia-login-links a:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 480px) {
+    .amelia-login-wrapper {
+        padding: 20px;
+        max-width: 100%;
+    }
+}
+
+#login {
+    width: 320px;
+    padding: 8% 0 0;
+    margin: auto;
+    background: #f0f0f0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.amelia-login-container * {
+    box-sizing: border-box;
+}
+
+.amelia-login-wrapper {
+    background: white;
+    padding: 26px 24px 46px;
+    font-weight: 400;
+    overflow: hidden;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    width: 100%;
+}
+
+.amelia-login-wrapper h1 {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.amelia-login-wrapper h1 a {
+    color: #3c434a;
+    text-decoration: none;
+    font-size: 20px;
+}
+
+.amelia-login-wrapper form {
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
+
+.amelia-login-wrapper label {
+    color: #3c434a;
+    font-size: 12px;  
+    margin-bottom: 5px;  
+    display: block;  
+}
+
+.amelia-login-wrapper .input {
+    font-size: 16px;
+    line-height: 1.33;
+    width: 100%;
+    padding: 8px 12px;
+    margin: 2px 0 12px 0;
+    border: 1px solid #c3c4c7;
+    border-radius: 6px;
+    color: #2c3338;
+}
+
+.amelia-login-wrapper .input:focus {
+    border-color: #007cba;
+    box-shadow: 0 0 0 1px #007cba;
+    outline: 2px solid transparent;
+}
+
+.amelia-login-wrapper .forgetmenot {
+    margin-top: 16px;
+}
+
+.amelia-login-wrapper .submit {
+    margin-top: 16px;
+}
+
+.amelia-login-wrapper .button-primary {
+    background: transparent;
+    border-color: transparent;
+    color: #000;
+    text-decoration: none;
+    text-shadow: none;
+    width: 100%;
+    padding: 8px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.amelia-login-wrapper .button-primary:hover {
+    background: #0671a1;
+    border-color: #0671a1;
+}
+
+#nav {
+    text-align: center;
+    margin-top: 24px;
+}
+
+#nav a {
+    color: #50575e;
+    text-decoration: none;
+}
+
+#nav a:hover {
+    color: #007cba;
+}
+
+@media screen and (max-width: 550px) {
+    #login {
+        width: 90%;
+        padding: 20px;
+    }
+    
+    .amelia-login-wrapper {
+        padding: 20px;
+    }
+}
+
+.login-message {
+    background-color: #f7f7f7;
+    border: 1px solid #c3c4c7;
+    color: #333;
+    padding: 15px;
+    margin-bottom: 20px;
+    border-radius: 3px;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.04);
+}
+
+.login-message p {
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.5;
+    text-align: center;
+}
+
+#loginform label {
+    font-size: 12px;
+    margin-bottom: 5px;
+    display: block;
+}
+
+#loginform input[type="text"],
+#loginform input[type="password"] {
+    font-size: 16px;
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+.login input[type="text"],
+.login input[type="password"] {
+    font-size: 16px !important;
+    border-radius: 6px !important;
+    padding: 8px 12px !important;
+}
+
+.login label {
+    font-size: 12px !important;
+    margin-bottom: 5px !important;
+    display: block !important;
+}
+
+.submit input[type="submit"] {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: black !important;
+}

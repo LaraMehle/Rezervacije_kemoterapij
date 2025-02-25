@@ -1,0 +1,27 @@
+[{
+  "name": "Happy Addons for Elementor",
+  "slug": "happy-elementor-addons",
+  "required": false,
+  "force_activation": false
+}, {
+  "name": "Prime Slider",
+  "slug": "bdthemes-prime-slider-lite",
+  "required": false,
+  "force_activation": false
+}, {
+  "name": "Font Awesome",
+  "slug": "font-awesome",
+  "required": false,
+  "force_activation": false
+}, {
+  "name": "Contact Form 7",
+  "slug": "contact-form-7",
+  "required": false,
+  "force_activation": false
+}, {
+  "name": "Elementor",
+  "slug": "elementor",
+  "required": false,
+  "force_activation": false
+}
+]

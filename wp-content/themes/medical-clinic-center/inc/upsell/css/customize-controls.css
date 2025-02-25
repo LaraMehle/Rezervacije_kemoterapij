@@ -1,0 +1,48 @@
+.control-section-medical-clinic-center h3.accordion-section-title {
+  line-height: 30px;
+}
+#customize-theme-controls .control-panel-themes>.accordion-section-title, 
+#customize-theme-controls .control-panel-themes>.accordion-section-title:hover{
+  margin: 0;
+}
+.control-section-medical-clinic-center h3.accordion-section-title a{
+  float: right;
+}
+li#customize-control-medical_clinic_center_phone button,li#customize-control-medical_clinic_center_opening_time button  {
+    display: none;
+}
+#accordion-section-medical_clinic_center_upgrade_pro h3 a{
+  background: #42c2c9;
+  border-color: #42c2c9;
+  outline-color:#42c2c9 !important;
+}
+#accordion-section-medical_clinic_center_upgrade_pro h3 {
+  color: #50575e !important;
+  background-color: #fff !important;
+}
+#accordion-section-medical_clinic_center_upgrade_pro h3 a:hover{
+  background: #121212;
+  border-color: #121212;
+  outline-color:#121212 !important;
+}
+#accordion-section-medical_clinic_center_documentation h3 a{
+  width: 100%;
+  padding: 6px;
+  margin-top: 6px;
+  font-size: 15px !important;
+  background: #2271b1;
+}
+#accordion-section-medical_clinic_center_documentation {
+  display: inline-grid;
+  width: 100%;
+  text-align: center;
+}
+#customize-controls .customize-pane-parent{
+  overflow-x: hidden;
+}
+#customize-theme-controls .accordion-section-title:has(a):after{
+  display: none !important;
+}
+.accordion-section-title button.accordion-trigger{
+  height: auto !important;
+}

@@ -1,0 +1,35 @@
+# Ignore WordPress core files (optional, if you don't want to include WP core)
+# wp-admin/
+# wp-includes/
+# wp-*.php
+# index.php
+# xmlrpc.php
+# license.txt
+# readme.html
+
+# Ignore specific plugins
+wp-content/plugins/ameliabooking/
+wp-content/plugins/amelia/
+
+# Configuration file with sensitive information
+wp-config.php
+
+# Uploads directory (typically large and not needed in version control)
+wp-content/uploads/
+
+# Ignore cache and temporary files
+wp-content/cache/
+wp-content/upgrade/
+wp-content/backup-db/
+wp-content/backups/
+wp-content/blogs.dir/
+wp-content/advanced-cache.php
+wp-content/wp-cache-config.php
+
+# Various log files
+*.log
+error_log
+
+# System files
+.DS_Store
+Thumbs.db
