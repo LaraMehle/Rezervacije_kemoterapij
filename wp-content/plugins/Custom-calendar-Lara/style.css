@@ -630,3 +630,203 @@ body.wp-admin .calendar-container {
     box-shadow: none !important;
     color: black !important;
 }
+
+/* Modal styling */
+.appointment-modal-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    animation: fadeIn 0.2s ease-in-out;
+}
+
+.appointment-modal {
+    background-color: #fff;
+    border-radius: 5px;
+    padding: 20px;
+    width: 500px;
+    max-width: 90%;
+    max-height: 80%;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    animation: slideIn 0.3s ease-in-out;
+}
+
+/* Close button */
+.close-button {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #666;
+}
+
+.close-button:hover {
+    color: #333;
+}
+
+/* Buttons */
+.delete-btn, .edit-toggle-btn, .save-btn, .cancel-btn, .close-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s ease;
+}
+
+.delete-btn {
+    background-color: #dc3545;
+    color: white;
+}
+
+.delete-btn:hover {
+    background-color: #c82333;
+}
+
+.edit-toggle-btn {
+    background-color: #007bff;
+    color: white;
+}
+
+.edit-toggle-btn:hover {
+    background-color: #0069d9;
+}
+
+.save-btn {
+    background-color: #28a745;
+    color: white;
+}
+
+.save-btn:hover {
+    background-color: #218838;
+}
+
+.save-btn:disabled {
+    background-color: #6c9b7a;
+    cursor: not-allowed;
+}
+
+.cancel-btn, .close-btn {
+    background-color: #6c757d;
+    color: white;
+}
+
+.cancel-btn:hover, .close-btn:hover {
+    background-color: #5a6268;
+}
+
+/* Form styling */
+#edit-appointment-form label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #444;
+}
+
+#edit-appointment-form input,
+#edit-appointment-form select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 15px;
+    font-size: 14px;
+}
+
+#edit-appointment-form input:focus,
+#edit-appointment-form select:focus {
+    border-color: #007bff;
+    outline: none;
+    box-shadow: 0 0 3px rgba(0, 123, 255, 0.3);
+}
+
+/* For patient info and details */
+dl {
+    margin: 0 0 20px 0;
+}
+
+dt {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+dd {
+    margin: 0 0 12px 0;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideIn {
+    from { transform: translateY(-20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+/* Loading indicator style */
+.loading-indicator {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-top-color: #007bff;
+    animation: spin 1s linear infinite;
+    margin-left: 8px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Disable style za select med nalaganjem */
+select:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+/* Form group styling za modal */
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+/* Button group styling */
+.button-group {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 20px;
+}
+
+.button-group button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
