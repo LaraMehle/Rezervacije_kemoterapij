@@ -1,3 +1,4 @@
+let organizedLocations = null;
 // Odstranimo podvojeno funkcijo preprocessResources in pustimo samo originalno verzijo
 function preprocessResources(resources) {
     resources.forEach(resource => {
@@ -362,6 +363,8 @@ function populateRoomFilter(resources, savedRooms) {
             });
         }
     });
+
+    organizedLocations = groupedResources;
 
     // Sort and add options
     const departmentOrder = { "AKT": 1, "DHL": 2, "DHD": 3 };
@@ -845,15 +848,14 @@ function generateTimeSlots(durationMinutes) {
 
 function updateLocationOptions(timeSlot, date, appointmentId) {
     const [startTime, endTime] = timeSlot.split(',');
-    const currentLocationId = document.querySelector('#location-select').value;
+    const locationSelect = document.querySelector('#location-select');
+    const currentLocationId = locationSelect ? locationSelect.value : '';
     
-    console.log('Posodabljam lokacije:', {
-        date: date,
-        startTime: startTime.trim(),
-        endTime: endTime.trim(),
-        appointmentId: appointmentId,
-        currentLocationId: currentLocationId
-    });
+    // Onemogoči select med nalaganjem
+    if (locationSelect) {
+        locationSelect.disabled = true;
+        locationSelect.innerHTML = '<option value="">Nalagam lokacije...</option>';
+    }
     
     jQuery.ajax({
         url: ameliaAjax.ajaxurl,
@@ -866,56 +868,20 @@ function updateLocationOptions(timeSlot, date, appointmentId) {
             end_time: endTime.trim(),
             appointment_id: appointmentId
         },
-        beforeSend: function() {
-            // Onemogoči select med nalaganjem
-            const locationSelect = document.querySelector('#location-select');
-            if (locationSelect) {
-                locationSelect.disabled = true;
-            }
-        },
         success: function(response) {
             console.log('Odgovor lokacij:', response);
             
-            if (response.success && response.data && response.data.available_locations) {
-                const locationSelect = document.querySelector('#location-select');
+            if (response.success && response.data && response.data.locations) {
+                // Uporabite novo funkcijo za prikaz lokacij s podatki o razpoložljivosti
+                populateLocationSelect(response.data.locations, currentLocationId);
+                
+                // Omogoči select
                 if (locationSelect) {
-                    // Shrani trenutno izbrano vrednost
-                    const selectedValue = locationSelect.value;
-                    
-                    // Počisti select
-                    locationSelect.innerHTML = '';
-                    
-                    // Uredi lokacije po oddelkih in številkah sob
-                    const sortedLocations = sortLocations(response.data.available_locations);
-                    
-                    // Dodaj možnosti
-                    let foundSelected = false;
-                    sortedLocations.forEach(location => {
-                        const option = document.createElement('option');
-                        option.value = location.id;
-                        option.textContent = location.title;
-                        
-                        // Če je to trenutno izbrana lokacija, jo izberi
-                        if (location.id === selectedValue || location.id === currentLocationId) {
-                            option.selected = true;
-                            foundSelected = true;
-                        }
-                        
-                        locationSelect.appendChild(option);
-                    });
-                    
-                    // Če nismo našli izbrane lokacije, izberi prvo
-                    if (!foundSelected && sortedLocations.length > 0) {
-                        locationSelect.value = sortedLocations[0].id;
-                    }
-                    
-                    // Omogoči select
                     locationSelect.disabled = false;
                 }
             } else {
                 console.error('Napaka pri pridobivanju lokacij:', response);
                 
-                const locationSelect = document.querySelector('#location-select');
                 if (locationSelect) {
                     locationSelect.innerHTML = '<option value="">Ni razpoložljivih lokacij</option>';
                     locationSelect.disabled = false;
@@ -923,46 +889,78 @@ function updateLocationOptions(timeSlot, date, appointmentId) {
             }
         },
         error: function(xhr, status, error) {
-            console.error('Ajax napaka:', {
-                status: xhr.status,
-                statusText: xhr.statusText,
-                responseText: xhr.responseText
-            });
+            console.error('Ajax napaka:', error);
             
-            // Omogoči select
-            const locationSelect = document.querySelector('#location-select');
             if (locationSelect) {
-                locationSelect.disabled = false;
                 locationSelect.innerHTML = '<option value="">Napaka pri nalaganju lokacij</option>';
+                locationSelect.disabled = false;
             }
         }
     });
 }
 
-// Funkcija za urejanje lokacij
 function sortLocations(locations) {
+    // Definirajmo redosled oddelkov
     const departmentOrder = { "AKT": 1, "DHL": 2, "DHD": 3 };
     
-    return locations.sort((a, b) => {
-        const aMatch = a.title.match(/^(.+?) Soba (\d+)/);
-        const bMatch = b.title.match(/^(.+?) Soba (\d+)/);
+    // Najprej parsirajmo lokacije, da dobimo strukturirane podatke
+    const structuredLocations = locations.map(loc => {
+        // Za id in title vzamemo tisto, kar je na voljo
+        const locString = loc.id || loc.title || '';
+        const parts = locString.split(' - ');
         
-        if (aMatch && bMatch) {
-            const aDept = aMatch[1];
-            const bDept = bMatch[1];
-            
-            // Najprej uredi po oddelkih
-            if (departmentOrder[aDept] !== departmentOrder[bDept]) {
-                return (departmentOrder[aDept] || 999) - (departmentOrder[bDept] || 999);
+        // Ekstrahirajmo informacije iz delov lokacije
+        const dept = parts[0]?.trim() || '';
+        
+        // Poiščemo številko sobe
+        let roomNum = 999;
+        if (parts[1]) {
+            const roomMatch = parts[1].match(/Soba\s+(\d+)/i);
+            if (roomMatch) {
+                roomNum = parseInt(roomMatch[1], 10);
             }
-            
-            // Nato po številki sobe
-            const aRoom = parseInt(aMatch[2]);
-            const bRoom = parseInt(bMatch[2]);
-            return aRoom - bRoom;
         }
-        return 0;
+        
+        // Poiščemo številko postelje
+        let bedNum = 999;
+        if (parts[2]) {
+            const bedMatch = parts[2].match(/Postelja\s+(\d+)/i);
+            if (bedMatch) {
+                bedNum = parseInt(bedMatch[1], 10);
+            }
+        }
+        
+        // Vrnemo originalni objekt z dodanimi sortirnimi polji
+        return {
+            ...loc,
+            _dept: dept,
+            _roomNum: roomNum,
+            _bedNum: bedNum,
+            _deptOrder: departmentOrder[dept] || 999
+        };
     });
+
+    // Nato sortiramo po treh nivojih
+    structuredLocations.sort((a, b) => {
+        // 1. Najprej po oddelku
+        if (a._deptOrder !== b._deptOrder) {
+            return a._deptOrder - b._deptOrder;
+        }
+        
+        // 2. Nato po številki sobe
+        if (a._roomNum !== b._roomNum) {
+            return a._roomNum - b._roomNum;
+        }
+        
+        // 3. Nazadnje po številki postelje
+        return a._bedNum - b._bedNum;
+    });
+    
+    // Za debugging
+    console.log('Strukturirane lokacije (po sortiranju):', structuredLocations);
+    
+    // Vrnemo sortirane objekte brez pomožnih polj
+    return structuredLocations;
 }
 
 // Funkcija za posodobitev termina
@@ -1093,3 +1091,65 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+
+function populateLocationSelect(availableLocations, currentLocationId) {
+    const locationSelect = document.querySelector('#location-select');
+    if (!locationSelect || !organizedLocations) return;
+    
+    // Očisti obstoječe opcije
+    locationSelect.innerHTML = '';
+    
+    // Ustvarimo mapo razpoložljivosti za hitro iskanje
+    const availabilityMap = {};
+    availableLocations.forEach(loc => {
+        availabilityMap[loc.id] = loc.available;
+    });
+    
+    // Definirajmo redosled oddelkov
+    const departmentOrder = { "AKT": 1, "DHL": 2, "DHD": 3 };
+    
+    // Dodajmo oddelke po vrsti
+    Object.keys(departmentOrder)
+        .filter(dept => organizedLocations[dept])
+        .forEach(department => {
+            // Ustvarimo optgroup za vsak oddelek
+            const departmentGroup = document.createElement('optgroup');
+            departmentGroup.label = department;
+            locationSelect.appendChild(departmentGroup);
+            
+            // Sortiramo sobe po številkah
+            const roomNumbers = Object.keys(organizedLocations[department])
+                .map(Number)
+                .sort((a, b) => a - b);
+            
+            // Za vsako sobo, dodamo vse postelje, sortirane po številki postelje
+            roomNumbers.forEach(roomNum => {
+                const beds = organizedLocations[department][roomNum]
+                    .sort((a, b) => a.bedNumber - b.bedNumber);
+                
+                beds.forEach(bed => {
+                    const option = document.createElement('option');
+                    option.value = bed.id;
+                    option.textContent = bed.title || bed.id;
+                    
+                    // Preveri razpoložljivost v mapi razpoložljivosti
+                    const isAvailable = availabilityMap[bed.id] !== false; // Če ni v mapi, predpostavljamo da je razpoložljiv
+                    
+                    // Če lokacija ni na voljo, jo označimo in onemogočimo
+                    if (!isAvailable) {
+                        option.disabled = true;
+                        option.classList.add('unavailable-location');
+                        option.textContent += ' (zasedeno)';
+                    }
+                    
+                    // Če je to trenutno izbrana lokacija, jo označimo
+                    if (bed.id === currentLocationId) {
+                        option.selected = true;
+                    }
+                    
+                    // Dodamo lokacijo v ustrezno skupino oddelka
+                    departmentGroup.appendChild(option);
+                });
+            });
+        });
+}

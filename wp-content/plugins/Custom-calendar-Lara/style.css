@@ -830,3 +830,93 @@ select:disabled {
     border-radius: 4px;
     cursor: pointer;
 }
+
+/* Stil za nedostopne lokacije */
+.unavailable-location {
+    color: #999 !important;
+    background-color: #f8f8f8;
+}
+
+/* Stilizacija select optgroup za oddelke */
+optgroup {
+    font-weight: bold;
+    background-color: #f5f5f5;
+    color: #333;
+    padding: 5px;
+}
+
+/* Stilizacija select elementa z nedostopnimi opcijami */
+select option:disabled {
+    color: #999;
+    font-style: italic;
+}
+
+/* Izboljšana stilizacija optgroup za oddelke */
+optgroup {
+    font-weight: bold;
+    background-color: #f5f5f5;
+    color: #333;
+    padding: 5px;
+    margin-top: 8px;
+}
+
+/* Stilizacija select elementa za lokacije */
+#location-select {
+    max-height: 200px; /* Omejitev višine za scrollanje */
+    width: 100%;
+}
+
+#location-select option {
+    padding: 4px 10px;
+}
+
+/* Omogoči barvno kodiranje lokacij po oddelkih */
+#location-select option[value*="AKT"] {
+    border-left: 3px solid #4FA5D8;
+    padding-left: 8px;
+}
+
+#location-select option[value*="DHL"] {
+    border-left: 3px solid #66D9A3;
+    padding-left: 8px;
+}
+
+#location-select option[value*="DHD"] {
+    border-left: 3px solid #FF9999;
+    padding-left: 8px;
+}
+
+/* Izboljšana stilizacija za zasedene lokacije */
+select option.unavailable-location {
+    background-color: #ffebee; /* Rahlo rdeče ozadje */
+    color: #bdbdbd !important; /* Siva barva besedila za manjši poudarek */
+    text-decoration: line-through; /* Prečrtano besedilo */
+    font-style: italic; /* Poševna pisava */
+    padding: 6px 10px;
+    border-left: 4px solid #ffcdd2; /* Rdeč obrobok na levi strani */
+}
+
+/* Ko se hover čez zasedeno lokacijo, naj bo jasno, da ni izbrana */
+select option.unavailable-location:hover {
+    background-color: #ffcdd2; /* Nekoliko temnejše rdeče ozadje ob prehodu miške */
+    cursor: not-allowed;
+}
+
+/* Če želite ohraniti barvno kodiranje po oddelkih, a dodati rdečo za zasedene */
+#location-select option[value*="AKT"].unavailable-location {
+    border-left: 4px solid #ffcdd2; /* Rdeč obrobok prepiše modrega */
+    background-color: #e6f0f7; /* Svetlo modro ozadje */
+    text-decoration: line-through;
+}
+
+#location-select option[value*="DHL"].unavailable-location {
+    border-left: 4px solid #ffcdd2; /* Rdeč obrobok prepiše zelenega */
+    background-color: #e9f7ef; /* Svetlo zeleno ozadje */
+    text-decoration: line-through;
+}
+
+#location-select option[value*="DHD"].unavailable-location {
+    border-left: 4px solid #ffcdd2; /* Rdeč obrobok prepiše rdečega */
+    background-color: #ffeaea; /* Svetlo rdeče ozadje */
+    text-decoration: line-through;
+}

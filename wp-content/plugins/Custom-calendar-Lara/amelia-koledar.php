@@ -618,7 +618,6 @@ function enqueue_select2_scripts() {
 }
 add_action('wp_enqueue_scripts', 'enqueue_select2_scripts');
 
-// Dodajte novo funkcijo za preverjanje razpoložljivih lokacij
 function amelia_get_available_locations() {
     if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
         wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
@@ -632,13 +631,6 @@ function amelia_get_available_locations() {
         $start_time = isset($_POST['start_time']) ? sanitize_text_field($_POST['start_time']) : '';
         $end_time = isset($_POST['end_time']) ? sanitize_text_field($_POST['end_time']) : '';
         $current_appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
-
-        error_log('get_available_locations prejeti podatki: ' . json_encode([
-            'date' => $date,
-            'start_time' => $start_time,
-            'end_time' => $end_time,
-            'appointment_id' => $current_appointment_id
-        ]));
 
         if (empty($date) || empty($start_time) || empty($end_time)) {
             wp_send_json_error(array('message' => 'Manjkajo potrebni podatki.'));
@@ -665,7 +657,9 @@ function amelia_get_available_locations() {
                     WHEN 'DHL' THEN 2
                     WHEN 'DHD' THEN 3
                     ELSE 4
-                END";
+                END,
+                CAST(SUBSTRING(c.name, 6) AS UNSIGNED),
+                s.name";
 
         $locations = $wpdb->get_results($locations_query);
 
@@ -682,33 +676,38 @@ function amelia_get_available_locations() {
         $booking_start = $start_datetime->format('Y-m-d H:i:s');
         $booking_end = $end_datetime->format('Y-m-d H:i:s');
 
-        // Preveri razpoložljivost vsake lokacije
-        $available_locations = array();
+        // Pripravi vse lokacije z označeno razpoložljivostjo
+        $all_locations = array();
         foreach ($locations as $location) {
-            if (check_appointment_availability(
+            $location_id = "{$location->department_name} - {$location->room_name} - {$location->service_name}";
+            
+            // Preveri razpoložljivost za vsako lokacijo
+            $is_available = check_appointment_availability(
                 $location->serviceId,
                 $location->providerId,
                 $booking_start,
                 $booking_end,
                 $current_appointment_id
-            )) {
-                $available_locations[] = array(
-                    'id' => "{$location->department_name} - {$location->room_name} - {$location->service_name}",
-                    'title' => "{$location->department_name} - {$location->room_name} - {$location->service_name}"
-                );
-            }
+            );
+            
+            $all_locations[] = array(
+                'id' => $location_id,
+                'title' => $location_id,
+                'available' => $is_available,
+                'department' => $location->department_name,
+                'room' => $location->room_name,
+                'service' => $location->service_name
+            );
         }
         
-        error_log('Število razpoložljivih lokacij: ' . count($available_locations));
-        
         wp_send_json_success(array(
-            'available_locations' => $available_locations
+            'locations' => $all_locations
         ));
 
     } catch (Exception $e) {
         error_log('Error in amelia_get_available_locations: ' . $e->getMessage());
         wp_send_json_error(array(
-            'message' => 'Napaka pri pridobivanju razpoložljivih lokacij: ' . $e->getMessage()
+            'message' => 'Napaka pri pridobivanju lokacij: ' . $e->getMessage()
         ));
     }
 }
