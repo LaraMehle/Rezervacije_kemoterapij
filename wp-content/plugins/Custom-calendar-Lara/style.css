@@ -920,3 +920,133 @@ select option.unavailable-location:hover {
     background-color: #ffeaea; /* Svetlo rdeče ozadje */
     text-decoration: line-through;
 }
+
+/* Dodajte te stile v vašo style.css datoteko */
+
+/* Izboljšane stilizacije za modalno okno */
+.modal-content {
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    min-width: 500px;
+    width: 60%;
+    max-width: 700px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-content h2 {
+    margin-top: 0;
+    color: #333;
+    border-bottom: 2px solid #f0f0f0;
+    padding-bottom: 15px;
+    font-size: 24px;
+}
+
+/* Oblikovanje vnosnih polj */
+#appointment-form .form-group {
+    margin-bottom: 25px;
+}
+
+#appointment-form label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    font-size: 16px;
+    color: #444;
+}
+
+#appointment-form input[type="text"],
+#appointment-form input[type="date"],
+#appointment-form select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 16px;
+    box-sizing: border-box;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+#appointment-form input[type="text"]:focus,
+#appointment-form input[type="date"]:focus,
+#appointment-form select:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+    outline: none;
+}
+
+/* Oblikovanje gumbov */
+#appointment-form .button-group {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 30px;
+}
+
+#appointment-form .delete-btn,
+#appointment-form .save-btn,
+#appointment-form .cancel-btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.1s;
+}
+
+#appointment-form .delete-btn {
+    background-color: #dc3545;
+    color: white;
+}
+
+#appointment-form .delete-btn:hover {
+    background-color: #c82333;
+}
+
+#appointment-form .save-btn {
+    background-color: #28a745;
+    color: white;
+}
+
+#appointment-form .save-btn:hover {
+    background-color: #218838;
+}
+
+#appointment-form .cancel-btn {
+    background-color: #6c757d;
+    color: white;
+}
+
+#appointment-form .cancel-btn:hover {
+    background-color: #5a6268;
+}
+
+#appointment-form button:active {
+    transform: scale(0.98);
+}
+
+#appointment-form button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+/* Responzivnost */
+@media (max-width: 768px) {
+    .modal-content {
+        min-width: auto;
+        width: 90%;
+        padding: 20px;
+    }
+    
+    #appointment-form .button-group {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    #appointment-form .button-group div {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+}

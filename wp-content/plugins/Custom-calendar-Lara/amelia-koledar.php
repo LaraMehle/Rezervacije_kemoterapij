@@ -209,7 +209,8 @@ function amelia_enqueue_scripts() {
     wp_enqueue_script('amelia-calendar', plugin_dir_url(__FILE__) . 'calendar.js', array('jquery'), null, true);
     wp_localize_script('amelia-calendar', 'ameliaAjax', array(
         'ajaxurl' => admin_url('admin-ajax.php'),
-        'nonce' => wp_create_nonce('amelia_appointment_nonce')
+        'nonce' => wp_create_nonce('amelia_appointment_nonce'),
+        'canEdit' => current_user_can('edit_posts')
     ));
 }
 
@@ -432,7 +433,6 @@ function amelia_get_available_slots() {
 
 add_action('wp_ajax_amelia_get_available_slots', 'amelia_get_available_slots');
 
-// Posodobite funkcijo amelia_update_appointment da uporablja preverjanje
 function amelia_update_appointment() {
     error_log('Update appointment function triggered');
     
@@ -454,7 +454,7 @@ function amelia_update_appointment() {
     try {
         // Get and validate input data
         $appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
-        $patient_info = isset($_POST['patient_info']) ? sanitize_text_field($_POST['patient_info']) : '';
+        $patient_info = isset($_POST['patient_info']) ? $_POST['patient_info'] : null; // Ne uporabimo sanitize_text_field
         $location = isset($_POST['location']) ? sanitize_text_field($_POST['location']) : '';
         $appointment_date = isset($_POST['appointment_date']) ? sanitize_text_field($_POST['appointment_date']) : '';
         $start_time = isset($_POST['start_time']) ? sanitize_text_field($_POST['start_time']) : '';
@@ -470,7 +470,7 @@ function amelia_update_appointment() {
         ]));
         
         // Validate required fields
-        if (empty($appointment_id) || empty($patient_info) || empty($location) || 
+        if (empty($appointment_id) || empty($location) || 
             empty($appointment_date) || empty($start_time) || empty($end_time)) {
             wp_send_json_error(array('message' => 'Vsa polja so obvezna.'));
             return;
@@ -558,26 +558,43 @@ function amelia_update_appointment() {
             throw new Exception($wpdb->last_error);
         }
         
-        // Update customer booking info
-        $patient_parts = explode(' ', $patient_info, 2);
-        $info = array(
-            'firstName' => $patient_parts[0],
-            'lastName' => isset($patient_parts[1]) ? $patient_parts[1] : '',
-            'fullName' => $patient_info
-        );
-        
-        $updated_booking = $wpdb->update(
-            'wp_amelia_customer_bookings',
-            array(
-                'info' => json_encode($info)
-            ),
-            array('appointmentId' => $appointment_id),
-            array('%s'),
-            array('%d')
-        );
-        
-        if ($wpdb->last_error) {
-            throw new Exception($wpdb->last_error);
+        // Samo če so bili podatki o pacientu eksplicitno posodobljeni
+        if ($patient_info !== null) {
+            // Če gre za asociativni array, ga spremenimo v JSON
+            if (is_array($patient_info)) {
+                $info_json = json_encode($patient_info);
+            } 
+            // Če gre za JSON niz, ga uporabimo direktno
+            else if (is_string($patient_info)) {
+                // Preveri, če je veljavni JSON
+                $decoded = json_decode($patient_info, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $info_json = $patient_info; // Že je v JSON formatu
+                } else {
+                    // Ni valid JSON, zato ustvarimo novega
+                    $info_array = array(
+                        'firstName' => $patient_info,
+                        'lastName' => '',
+                        'fullName' => $patient_info
+                    );
+                    $info_json = json_encode($info_array);
+                }
+            } else {
+                throw new Exception('Neveljavni podatki o pacientu');
+            }
+            
+            // Shranjujemo neposredno poslani JSON (brez dodatnega kodiranja)
+            $updated_booking = $wpdb->update(
+                'wp_amelia_customer_bookings',
+                array('info' => $info_json),
+                array('appointmentId' => $appointment_id),
+                array('%s'),
+                array('%d')
+            );
+            
+            if ($wpdb->last_error) {
+                throw new Exception($wpdb->last_error);
+            }
         }
 
         // Commit transaction
@@ -596,7 +613,6 @@ function amelia_update_appointment() {
         ));
     }
 }
-
 add_action('wp_ajax_amelia_update_appointment', 'amelia_update_appointment');
 
 // Test connection function
@@ -804,9 +820,9 @@ function amelia_get_available_time_slots() {
             $current_appointment_id
         ));
 
-        // Generiraj razpoložljive termine (30-minutni intervali med 7:00 in 20:00)
+        // Generiraj razpoložljive termine (30-minutni intervali med 7:30 in 20:00)
         $available_slots = array();
-        $current_time = new DateTime($date . ' 07:00:00', $timezone);
+        $current_time = new DateTime($date . ' 07:30:00', $timezone);
         $end_time = new DateTime($date . ' 20:00:00', $timezone);
 
         while ($current_time < $end_time) {
@@ -863,3 +879,55 @@ function amelia_get_available_time_slots() {
 }
 
 add_action('wp_ajax_amelia_get_available_time_slots', 'amelia_get_available_time_slots');
+
+// Dodajte to funkcijo v amelia-koledar.php
+function amelia_get_appointment_details() {
+    if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
+        wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
+        return;
+    }
+    
+    global $wpdb;
+    
+    try {
+        $appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
+        
+        if (empty($appointment_id)) {
+            wp_send_json_error(array('message' => 'ID termina ni veljaven.'));
+            return;
+        }
+        
+        // Pridobi podatke o pacientu iz baze
+        $info_query = $wpdb->prepare(
+            "SELECT info FROM wp_amelia_customer_bookings WHERE appointmentId = %d LIMIT 1",
+            $appointment_id
+        );
+        
+        $info_json = $wpdb->get_var($info_query);
+        
+        if ($info_json) {
+            $info = json_decode($info_json, true);
+            wp_send_json_success($info);
+        } else {
+            wp_send_json_error(array('message' => 'Ni bilo mogoče najti podatkov o pacientu.'));
+        }
+        
+    } catch (Exception $e) {
+        wp_send_json_error(array('message' => 'Napaka pri pridobivanju podatkov: ' . $e->getMessage()));
+    }
+}
+
+add_action('wp_ajax_amelia_get_appointment_details', 'amelia_get_appointment_details');
+add_action('wp_ajax_nopriv_amelia_get_appointment_details', 'amelia_get_appointment_details');
+
+function amelia_check_permissions() {
+    $response = array(
+        'canEdit' => current_user_can('edit_posts'),
+        'message' => current_user_can('edit_posts') ? 'Lahko urejate.' : 'Nimate dovoljenja za urejanje terminov.'
+    );
+    
+    wp_send_json_success($response);
+}
+
+add_action('wp_ajax_amelia_check_permissions', 'amelia_check_permissions');
+add_action('wp_ajax_nopriv_amelia_check_permissions', 'amelia_check_permissions');
