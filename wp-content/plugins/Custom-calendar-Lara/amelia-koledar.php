@@ -459,6 +459,7 @@ function amelia_update_appointment() {
         $appointment_date = isset($_POST['appointment_date']) ? sanitize_text_field($_POST['appointment_date']) : '';
         $start_time = isset($_POST['start_time']) ? sanitize_text_field($_POST['start_time']) : '';
         $end_time = isset($_POST['end_time']) ? sanitize_text_field($_POST['end_time']) : '';
+        $duration_minutes = isset($_POST['duration_minutes']) ? intval($_POST['duration_minutes']) : 30;
         
         error_log('Prejeti podatki: ' . json_encode([
             'appointment_id' => $appointment_id,
@@ -466,13 +467,20 @@ function amelia_update_appointment() {
             'location' => $location,
             'appointment_date' => $appointment_date,
             'start_time' => $start_time,
-            'end_time' => $end_time
+            'end_time' => $end_time,
+            'duration_minutes' => $duration_minutes
         ]));
         
         // Validate required fields
         if (empty($appointment_id) || empty($location) || 
             empty($appointment_date) || empty($start_time) || empty($end_time)) {
             wp_send_json_error(array('message' => 'Vsa polja so obvezna.'));
+            return;
+        }
+        
+        // Preveri veljavnost trajanja (med 30 minut in 9,5 ur)
+        if ($duration_minutes < 30 || $duration_minutes > 570) {
+            wp_send_json_error(array('message' => 'Neveljavno trajanje termina. Dovoljen razpon je med 30 minut in 9,5 ur.'));
             return;
         }
     
@@ -744,16 +752,24 @@ function amelia_get_available_time_slots() {
         $location = isset($_POST['location']) ? sanitize_text_field($_POST['location']) : '';
         $duration_minutes = isset($_POST['duration_minutes']) ? intval($_POST['duration_minutes']) : 30;
         $current_appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
+        $current_start = isset($_POST['current_start']) ? sanitize_text_field($_POST['current_start']) : '';
 
         error_log('get_available_time_slots prejeti podatki: ' . json_encode([
             'date' => $date,
             'location' => $location,
             'duration_minutes' => $duration_minutes,
-            'appointment_id' => $current_appointment_id
+            'appointment_id' => $current_appointment_id,
+            'current_start' => $current_start
         ]));
 
         if (empty($date) || empty($location)) {
             wp_send_json_error(array('message' => 'Manjkajo potrebni podatki.'));
+            return;
+        }
+
+        // Preveri veljavnost trajanja (med 30 minut in 9,5 ur)
+        if ($duration_minutes < 30 || $duration_minutes > 570) {
+            wp_send_json_error(array('message' => 'Neveljavno trajanje termina. Dovoljen razpon je med 30 minut in 9,5 ur.'));
             return;
         }
 
@@ -820,35 +836,96 @@ function amelia_get_available_time_slots() {
             $current_appointment_id
         ));
 
+        // Če imamo izbrani začetni čas (iz obstoječega termina), poskušamo ohraniti ta začetni čas
+        $prioritize_current_start = !empty($current_start);
+        
         // Generiraj razpoložljive termine (30-minutni intervali med 7:30 in 20:00)
         $available_slots = array();
         $current_time = new DateTime($date . ' 07:30:00', $timezone);
         $end_time = new DateTime($date . ' 20:00:00', $timezone);
 
+        // Maksimalen čas konca termina (ne more se končati po delovnem času)
+        $max_end_time = clone $end_time;
+
+        // Spremeni obstoječe termine v lokalni čas za enostavnejšo primerjavo
+        $occupied_periods = array();
+        foreach ($appointments as $appointment) {
+            $appt_start = new DateTime($appointment->bookingStart, $utc_timezone);
+            $appt_end = new DateTime($appointment->bookingEnd, $utc_timezone);
+            
+            $appt_start->setTimezone($timezone);
+            $appt_end->setTimezone($timezone);
+            
+            $occupied_periods[] = array(
+                'start' => $appt_start->format('H:i'),
+                'end' => $appt_end->format('H:i')
+            );
+        }
+
+        // Če imamo izbran začetni čas, najprej preverimo, ali lahko dodamo ta čas
+        if ($prioritize_current_start) {
+            $requested_start = $current_start;
+            $requested_start_obj = new DateTime("$date $requested_start", $timezone);
+            $requested_end_obj = clone $requested_start_obj;
+            $requested_end_obj->modify('+'.$duration_minutes.' minutes');
+            
+            // Preveri, ali je ta čas še v okviru delovnega časa
+            if ($requested_end_obj <= $max_end_time) {
+                $requested_end = $requested_end_obj->format('H:i');
+                
+                // Preveri, da se ne prekriva z drugim terminom
+                $is_available = true;
+                foreach ($occupied_periods as $period) {
+                    $period_start = $period['start'];
+                    $period_end = $period['end'];
+                    
+                    // Če se prekriva, ni na voljo
+                    if (
+                        ($requested_start < $period_end && $requested_end > $period_start)
+                    ) {
+                        $is_available = false;
+                        break;
+                    }
+                }
+                
+                if ($is_available) {
+                    // Dodaj ta termin kot prvi v seznamu
+                    $available_slots[] = array(
+                        'start' => $requested_start,
+                        'end' => $requested_end
+                    );
+                }
+            }
+        }
+
+        // Generiraj ostale razpoložljive termine (če ne ohranimo obstoječega začetnega časa ali ga ni)
         while ($current_time < $end_time) {
             $slot_start = clone $current_time;
             $slot_end = clone $current_time;
             $slot_end->modify('+' . $duration_minutes . ' minutes');
 
             // Če slot konča po koncu delovnega časa, ga preskoči
-            if ($slot_end > $end_time) {
+            if ($slot_end > $max_end_time) {
                 break;
             }
 
-            $slot_start_utc = clone $slot_start;
-            $slot_end_utc = clone $slot_end;
-            $slot_start_utc->setTimezone($utc_timezone);
-            $slot_end_utc->setTimezone($utc_timezone);
+            $slot_start_str = $slot_start->format('H:i');
+            $slot_end_str = $slot_end->format('H:i');
+            
+            // Preskoči, če je to isti začetni čas, kot smo ga že dodali
+            if ($prioritize_current_start && $slot_start_str === $current_start) {
+                $current_time->modify('+30 minutes');
+                continue;
+            }
 
             // Preveri, ali se ta termin prekriva z obstoječimi termini
             $is_available = true;
-            foreach ($appointments as $appointment) {
-                $appt_start = new DateTime($appointment->bookingStart);
-                $appt_end = new DateTime($appointment->bookingEnd);
+            foreach ($occupied_periods as $period) {
+                $period_start = $period['start'];
+                $period_end = $period['end'];
                 
                 if (
-                    ($slot_start_utc < $appt_end) && 
-                    ($slot_end_utc > $appt_start)
+                    ($slot_start_str < $period_end && $slot_end_str > $period_start)
                 ) {
                     $is_available = false;
                     break;
@@ -857,8 +934,8 @@ function amelia_get_available_time_slots() {
 
             if ($is_available) {
                 $available_slots[] = array(
-                    'start' => $slot_start->format('H:i'),
-                    'end' => $slot_end->format('H:i')
+                    'start' => $slot_start_str,
+                    'end' => $slot_end_str
                 );
             }
 
@@ -931,3 +1008,299 @@ function amelia_check_permissions() {
 
 add_action('wp_ajax_amelia_check_permissions', 'amelia_check_permissions');
 add_action('wp_ajax_nopriv_amelia_check_permissions', 'amelia_check_permissions');
+
+// Funkcija za preverjanje konfliktov terminov
+function amelia_check_time_conflicts() {
+    if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
+        wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
+        return;
+    }
+
+    global $wpdb;
+    
+    try {
+        $date = isset($_POST['date']) ? sanitize_text_field($_POST['date']) : '';
+        $location = isset($_POST['location']) ? sanitize_text_field($_POST['location']) : '';
+        $start_time = isset($_POST['start_time']) ? sanitize_text_field($_POST['start_time']) : '';
+        $end_time = isset($_POST['end_time']) ? sanitize_text_field($_POST['end_time']) : '';
+        $appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
+
+        if (empty($date) || empty($location) || empty($start_time) || empty($end_time)) {
+            wp_send_json_error(array('message' => 'Manjkajo potrebni podatki.'));
+            return;
+        }
+
+        // Razdeli lokacijo na dele
+        $location_parts = explode(' - ', $location);
+        if (count($location_parts) !== 3) {
+            wp_send_json_error(array('message' => 'Neveljaven format lokacije.'));
+            return;
+        }
+
+        $department_name = trim($location_parts[0]);
+        $room_name = trim($location_parts[1]);
+        $bed_name = trim($location_parts[2]);
+
+        // Pridobi serviceId in providerId
+        $location_query = $wpdb->prepare(
+            "SELECT 
+                s.id AS serviceId,
+                e.id AS providerId
+            FROM wp_amelia_services s
+            LEFT JOIN wp_amelia_categories c ON s.categoryId = c.id
+            LEFT JOIN wp_amelia_providers_to_services ps ON s.id = ps.serviceId
+            LEFT JOIN wp_amelia_users e ON ps.userId = e.id
+            WHERE e.firstName = %s 
+            AND c.name = %s
+            AND s.name = %s
+            LIMIT 1",
+            $department_name,
+            $room_name,
+            $bed_name
+        );
+
+        $location_info = $wpdb->get_row($location_query);
+        
+        if (!$location_info) {
+            wp_send_json_error(array('message' => 'Lokacija ni bila najdena.'));
+            return;
+        }
+
+        // Pretvori čase v UTC
+        $timezone = new DateTimeZone('Europe/Ljubljana');
+        $utc_timezone = new DateTimeZone('UTC');
+        
+        $start_datetime = new DateTime("$date $start_time", $timezone);
+        $end_datetime = new DateTime("$date $end_time", $timezone);
+        
+        $start_datetime->setTimezone($utc_timezone);
+        $end_datetime->setTimezone($utc_timezone);
+        
+        $booking_start = $start_datetime->format('Y-m-d H:i:s');
+        $booking_end = $end_datetime->format('Y-m-d H:i:s');
+
+        // Preveri, ali obstaja prekrivanje med termini
+        $conflicts = $wpdb->get_results($wpdb->prepare(
+            "SELECT a.id, a.bookingStart, a.bookingEnd,
+                JSON_UNQUOTE(JSON_EXTRACT(cb.info, '$.firstName')) AS patient_first_name,
+                JSON_UNQUOTE(JSON_EXTRACT(cb.info, '$.lastName')) AS patient_last_name
+            FROM wp_amelia_appointments a
+            LEFT JOIN wp_amelia_customer_bookings cb ON a.id = cb.appointmentId
+            WHERE a.id != %d 
+            AND a.serviceId = %d
+            AND a.providerId = %d
+            AND (
+                (a.bookingStart < %s AND a.bookingEnd > %s) OR
+                (a.bookingStart >= %s AND a.bookingStart < %s) OR
+                (a.bookingEnd > %s AND a.bookingEnd <= %s)
+            )",
+            $appointment_id,
+            $location_info->serviceId,
+            $location_info->providerId,
+            $booking_end,
+            $booking_start,
+            $booking_start,
+            $booking_end,
+            $booking_start,
+            $booking_end
+        ));
+
+        $has_conflict = !empty($conflicts);
+        
+        // Pretvori konfliktne termine v lokalni čas za lepši prikaz
+        $conflict_info = array();
+        if ($has_conflict) {
+            foreach ($conflicts as $conflict) {
+                $conflict_start = new DateTime($conflict->bookingStart, $utc_timezone);
+                $conflict_end = new DateTime($conflict->bookingEnd, $utc_timezone);
+                
+                $conflict_start->setTimezone($timezone);
+                $conflict_end->setTimezone($timezone);
+                
+                $conflict_info[] = array(
+                    'id' => $conflict->id,
+                    'patient' => trim($conflict->patient_first_name . ' ' . $conflict->patient_last_name),
+                    'start' => $conflict_start->format('H:i'),
+                    'end' => $conflict_end->format('H:i')
+                );
+            }
+        }
+
+        wp_send_json_success(array(
+            'has_conflict' => $has_conflict,
+            'conflicts' => $conflict_info
+        ));
+
+    } catch (Exception $e) {
+        error_log('Error in amelia_check_time_conflicts: ' . $e->getMessage());
+        wp_send_json_error(array(
+            'message' => 'Napaka pri preverjanju konfliktov: ' . $e->getMessage()
+        ));
+    }
+}
+
+add_action('wp_ajax_amelia_check_time_conflicts', 'amelia_check_time_conflicts');
+
+// Funkcija za pridobivanje razpoložljivih začetnih časov
+function amelia_get_available_start_times() {
+    if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
+        wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
+        return;
+    }
+
+    global $wpdb;
+    
+    try {
+        $date = isset($_POST['date']) ? sanitize_text_field($_POST['date']) : '';
+        $location = isset($_POST['location']) ? sanitize_text_field($_POST['location']) : '';
+        $appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
+
+        if (empty($date) || empty($location)) {
+            wp_send_json_error(array('message' => 'Manjkajo potrebni podatki.'));
+            return;
+        }
+
+        // Razdeli lokacijo na dele
+        $location_parts = explode(' - ', $location);
+        if (count($location_parts) !== 3) {
+            wp_send_json_error(array('message' => 'Neveljaven format lokacije.'));
+            return;
+        }
+
+        $department_name = trim($location_parts[0]);
+        $room_name = trim($location_parts[1]);
+        $bed_name = trim($location_parts[2]);
+
+        // Pridobi serviceId in providerId
+        $location_query = $wpdb->prepare(
+            "SELECT 
+                s.id AS serviceId,
+                e.id AS providerId
+            FROM wp_amelia_services s
+            LEFT JOIN wp_amelia_categories c ON s.categoryId = c.id
+            LEFT JOIN wp_amelia_providers_to_services ps ON s.id = ps.serviceId
+            LEFT JOIN wp_amelia_users e ON ps.userId = e.id
+            WHERE e.firstName = %s 
+            AND c.name = %s
+            AND s.name = %s
+            LIMIT 1",
+            $department_name,
+            $room_name,
+            $bed_name
+        );
+
+        $location_info = $wpdb->get_row($location_query);
+        
+        if (!$location_info) {
+            wp_send_json_error(array('message' => 'Lokacija ni bila najdena.'));
+            return;
+        }
+
+        // Pridobi vse obstoječe termine za to lokacijo na ta dan
+        $timezone = new DateTimeZone('Europe/Ljubljana');
+        $utc_timezone = new DateTimeZone('UTC');
+        
+        $start_of_day = new DateTime($date . ' 00:00:00', $timezone);
+        $end_of_day = new DateTime($date . ' 23:59:59', $timezone);
+        
+        $start_of_day->setTimezone($utc_timezone);
+        $end_of_day->setTimezone($utc_timezone);
+
+        $appointments = $wpdb->get_results($wpdb->prepare(
+            "SELECT bookingStart, bookingEnd
+            FROM wp_amelia_appointments
+            WHERE serviceId = %d
+            AND providerId = %d
+            AND bookingStart >= %s
+            AND bookingStart < %s
+            AND id != %d
+            ORDER BY bookingStart",
+            $location_info->serviceId,
+            $location_info->providerId,
+            $start_of_day->format('Y-m-d H:i:s'),
+            $end_of_day->format('Y-m-d H:i:s'),
+            $appointment_id
+        ));
+
+        // Če urejamo obstoječ termin, pridobi njegov trenutni začetni čas
+        $current_start_time = null;
+        if ($appointment_id > 0) {
+            $current_appointment = $wpdb->get_row($wpdb->prepare(
+                "SELECT bookingStart
+                FROM wp_amelia_appointments
+                WHERE id = %d",
+                $appointment_id
+            ));
+            
+            if ($current_appointment) {
+                $start_utc = new DateTime($current_appointment->bookingStart, $utc_timezone);
+                $start_utc->setTimezone($timezone);
+                $current_start_time = $start_utc->format('H:i');
+            }
+        }
+
+        // Generiraj vse možne začetne čase (na 30 minut)
+        $available_times = array();
+        $occupied_periods = array();
+        
+        // Najprej pretvori vse obstoječe termine v lokalni čas in shrani kot zasedene periode
+        foreach ($appointments as $appointment) {
+            $appt_start = new DateTime($appointment->bookingStart, $utc_timezone);
+            $appt_end = new DateTime($appointment->bookingEnd, $utc_timezone);
+            
+            $appt_start->setTimezone($timezone);
+            $appt_end->setTimezone($timezone);
+            
+            $occupied_periods[] = array(
+                'start' => $appt_start->format('H:i'),
+                'end' => $appt_end->format('H:i')
+            );
+        }
+        
+        // Generiraj vse možne začetne čase (30-minutni intervali med 7:30 in 19:30)
+        $current_time = new DateTime($date . ' 07:30:00', $timezone);
+        $end_time = new DateTime($date . ' 19:30:00', $timezone);
+        
+        while ($current_time <= $end_time) {
+            $time_str = $current_time->format('H:i');
+            
+            // Če je to trenutni začetni čas termina, ga vedno dodaj v seznam
+            if ($time_str === $current_start_time) {
+                $available_times[] = $time_str;
+            } 
+            // Sicer preveri, da se ne prekriva z drugim terminom
+            else {
+                $is_available = true;
+                foreach ($occupied_periods as $period) {
+                    $period_start = $period['start'];
+                    $period_end = $period['end'];
+                    
+                    // Če je trenutni čas med začetnim in končnim časom zasedenega termina, ni na voljo
+                    if ($time_str >= $period_start && $time_str < $period_end) {
+                        $is_available = false;
+                        break;
+                    }
+                }
+                
+                if ($is_available) {
+                    $available_times[] = $time_str;
+                }
+            }
+            
+            // Premakni se naprej za 30 minut
+            $current_time->modify('+30 minutes');
+        }
+        
+        wp_send_json_success(array(
+            'available_times' => $available_times
+        ));
+
+    } catch (Exception $e) {
+        error_log('Error in amelia_get_available_start_times: ' . $e->getMessage());
+        wp_send_json_error(array(
+            'message' => 'Napaka pri pridobivanju razpoložljivih začetnih časov: ' . $e->getMessage()
+        ));
+    }
+}
+
+add_action('wp_ajax_amelia_get_available_start_times', 'amelia_get_available_start_times');

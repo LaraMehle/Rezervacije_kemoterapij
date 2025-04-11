@@ -1,4 +1,7 @@
 let organizedLocations = null;
+let userSelectedLocationId = null;
+// Globalna spremenljivka za shranjevanje originalnih vrednosti
+let originalAppointmentValues = null;
 // Odstranimo podvojeno funkcijo preprocessResources in pustimo samo originalno verzijo
 function preprocessResources(resources) {
     resources.forEach(resource => {
@@ -178,33 +181,38 @@ document.addEventListener('DOMContentLoaded', function () {
     roomFilter = document.createElement('select');
     roomFilter.id = 'roomFilter';
     roomFilter.className = 'room-filter';
-    // Removed the fixed width style
     roomFilter.setAttribute("multiple", "multiple");
 
-    // Create date picker
+    // Create date picker - vrnitev na osnovno različico
     datePicker = document.createElement('input');
-    datePicker.type = 'date';
+    datePicker.type = 'date'; // Uporabimo native date picker
     datePicker.style.padding = '5px';
     datePicker.id = 'datePicker';
 
-    // Add elements to container
+    // Nastavimo privzeti datum
+    let savedDate = localStorage.getItem('selectedDate') || new Date().toISOString().split('T')[0];
+    datePicker.value = savedDate;
+
+    // Dodelimo handler za spremembo datuma
+    datePicker.addEventListener('change', function() {
+        localStorage.setItem('selectedDate', this.value);
+        fetchData(loadCalendar);
+    });
+
+    // Dodamo elementi v container
     filterContainer.appendChild(datePicker);
     filterContainer.appendChild(roomFilter);
-    
 
     // Add container to calendar element
     calendarEl.insertBefore(filterContainer, calendarEl.firstChild);
 
-    // Load saved settings
-    let savedDate = localStorage.getItem('selectedDate') || new Date().toISOString().split('T')[0];
+    // Load saved settings for room filter
     let savedRooms = JSON.parse(localStorage.getItem('selectedRooms')) || ['all'];
-
-    datePicker.value = savedDate;
 
     jQuery('#roomFilter').select2({
         placeholder: "Izberite sobe in postelje",
         allowClear: true,
-        width: '100%' // Changed from 300px to 100%
+        width: '100%'
     });
 
     jQuery('.select2-container').css('width', '100%');
@@ -226,7 +234,6 @@ document.addEventListener('DOMContentLoaded', function () {
             attributeFilter: ['style']
         });
     }
-    
 
     // Room filter change handler
     jQuery('#roomFilter').on('change', function(e) {
@@ -277,12 +284,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    // Date picker change handler
-    datePicker.addEventListener('change', function() {
-        localStorage.setItem('selectedDate', this.value);
-        fetchData(loadCalendar);
-    });
-
     // Initial data fetch
     fetchData(function(data) {
         if (!data || !data.resources) {
@@ -293,6 +294,23 @@ document.addEventListener('DOMContentLoaded', function () {
         populateRoomFilter(data.resources, savedRooms);
         loadCalendar(data);
     });
+
+    // Dodamo CSS za lepši prikaz datepicker-ja
+    const datePickerStyle = document.createElement('style');
+    datePickerStyle.textContent = `
+        #datePicker {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 140px;
+        }
+        
+        #datePicker::-webkit-calendar-picker-indicator {
+            cursor: pointer;
+        }
+    `;
+    document.head.appendChild(datePickerStyle);
 }); 
 
 function fetchData(callback) {
@@ -461,7 +479,20 @@ function formatOption(option) {
 
 function loadCalendar(data) {
     const calendarEl = document.getElementById('amelia-calendar');
-    const selectedDate = document.getElementById('datePicker').value;
+    
+    // Pridobimo izbrani datum v ISO formatu (YYYY-MM-DD)
+    const isoDate = document.getElementById('datePicker').value;
+    
+    // Možnosti za pretvorbo za prikaz, če bi želeli drugačen format
+    // (Ta del je neobvezen, uporabite ga le če želite drugačen prikaz datuma v UI)
+    const dateParts = isoDate.split('-');
+    const displayDate = dateParts.length === 3 
+        ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` // format DD/MM/YYYY
+        : isoDate;
+        
+    // Za filtriranje dogodkov vedno uporabite original ISO format
+    const selectedDate = isoDate; 
+    
     const selectedRooms = jQuery('#roomFilter').val() || ['all'];
 
     // Create main container for table
@@ -662,19 +693,22 @@ jQuery(document).ready(function() {
     });
 });
 
-// Posodobljen del funkcije showAppointmentDetails
 function showAppointmentDetails(appointment) {
     console.log('Prikaz termina:', appointment);
+    console.log('Začetni appointment objekt:', JSON.stringify(appointment));
 
     if (!appointment) {
         console.error('Ni podatkov o terminu');
         return;
     }
+    
+    // Najprej zapremo vsa obstoječa modalna okna
+    closeAllModals();
 
     // Pretvori datume v pravilen format
     const startDate = new Date(appointment.start);
     const endDate = new Date(appointment.end);
-    
+
     const formattedDate = startDate.toISOString().split('T')[0];
     const formattedStartTime = startDate.toTimeString().slice(0, 5);
     const formattedEndTime = endDate.toTimeString().slice(0, 5);
@@ -793,16 +827,29 @@ function showAppointmentDetails(appointment) {
     });
 }
 
-// Nova pomožna funkcija za ustvarjanje modalnega okna
 function createAppointmentModal(appointment, patientName, therapy, formattedDate, formattedStartTime, formattedEndTime, durationMinutes, canEdit) {
     // Pridobi ime oddelka za barvno kodiranje
+    console.log('Vhodni appointment za modal:', JSON.stringify(appointment));
+    const originalResourceId = appointment.resourceId;
+    const originalResourceName = appointment.resourceName || '';
+    console.log('Ustvarjam modal z lokacijo:', originalResourceName);
+
+    window.currentAppointmentLocation={
+        id: originalResourceId,
+        name: originalResourceName
+    }
+
+    
     const departmentMatch = appointment.resourceId.match(/^([^-]+)/);
     const department = departmentMatch ? departmentMatch[1].trim() : '';
-    
+
     let deptColor = '#cccccc';
     if (department === 'AKT') deptColor = '#4FA5D8';
     else if (department === 'DHL') deptColor = '#66D9A3';
     else if (department === 'DHD') deptColor = '#FF9999';
+    
+    // Najprej zapremo vsa obstoječa modalna okna
+    closeAllModals();
     
     // Pripravi gumbe glede na pravice
     const editButtonHtml = canEdit ? 
@@ -830,120 +877,150 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
         </button>`;
     
     // Ustvari modal s pogledom podrobnosti (privzeto)
-    const modalHtml = `
-        <div class="appointment-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;">
-            <div class="modal-content" style="background: white; padding: 30px; border-radius: 8px; min-width: 500px; width: 60%; max-width: 700px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);">
-                <!-- Pogled za podrobnosti -->
-                <div id="details-view">
-                    <div style="border-left: 4px solid ${deptColor}; padding-left: 15px; margin-bottom: 20px;">
-                        <h2 style="margin-top: 0; color: #333;">Podrobnosti termina</h2>
+    const modalElement = document.createElement('div');
+    modalElement.className = 'appointment-modal';
+    modalElement.style.position = 'fixed';
+    modalElement.style.top = '0';
+    modalElement.style.left = '0';
+    modalElement.style.width = '100%';
+    modalElement.style.height = '100%';
+    modalElement.style.backgroundColor = 'rgba(0,0,0,0.5)';
+    modalElement.style.display = 'flex';
+    modalElement.style.justifyContent = 'center';
+    modalElement.style.alignItems = 'center';
+    modalElement.style.zIndex = '1000';
+    
+    const modalContentHtml = `
+        <div class="modal-content" style="background: white; padding: 30px; border-radius: 8px; min-width: 500px; width: 60%; max-width: 700px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);">
+            <!-- Pogled za podrobnosti -->
+            <div id="details-view">
+                <div style="border-left: 4px solid ${deptColor}; padding-left: 15px; margin-bottom: 20px;">
+                    <h2 style="margin-top: 0; color: #333;">Podrobnosti termina</h2>
+        </div>
+        
+                <button class="close-button" style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 20px; cursor: pointer;">×</button>
+                
+                <dl style="margin-bottom: 25px;">
+                    <dt style="font-weight: bold; margin-bottom: 8px;">Pacient:</dt>
+                    <dd style="margin: 0 0 15px 0;">${patientName}</dd>
+                    
+                    <dt style="font-weight: bold; margin-bottom: 8px;">Terapija:</dt>
+                    <dd style="margin: 0 0 15px 0;">${therapy}</dd>
+                    
+                    <dt style="font-weight: bold; margin-bottom: 8px;">Datum:</dt>
+                    <dd style="margin: 0 0 15px 0;">${formattedDate}</dd>
+                    
+                    <dt style="font-weight: bold; margin-bottom: 8px;">Čas:</dt>
+                    <dd style="margin: 0 0 15px 0;">${formattedStartTime} - ${formattedEndTime}</dd>
+                    
+                    <dt style="font-weight: bold; margin-bottom: 8px;">Trajanje:</dt>
+                    <dd style="margin: 0 0 15px 0;">${formatDuration(Math.round(durationMinutes))}</dd>
+                    
+                    <dt style="font-weight: bold; margin-bottom: 8px;">Lokacija:</dt>
+                    <dd style="margin: 0 0 15px 0;">${originalResourceName}</dd>
+                    
+                    <dt style="font-weight: bold; margin-bottom: 8px;">ID Termina:</dt>
+                    <dd style="margin: 0 0 15px 0;"><span class="appointment-id">${appointment.id}</span></dd>
+            </dl>
+                
+                <div class="button-group" style="display: flex; justify-content: space-between; margin-top: 30px;">
+                    ${deleteButtonHtml}
+                    <div>
+                        <button type="button" class="close-btn" 
+                                style="padding: 12px 24px; margin-right: 10px; border: none; border-radius: 6px; background-color: #6c757d; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s;"
+                                onclick="document.querySelector('.appointment-modal').remove()">
+                            Zapri
+                        </button>
+                        ${editButtonHtml}
                     </div>
-                    
-                    <button class="close-button" style="position: absolute; top: 10px; right: 10px; background: none; border: none; font-size: 20px; cursor: pointer;">×</button>
-                    
-                    <dl style="margin-bottom: 25px;">
-                        <dt style="font-weight: bold; margin-bottom: 8px;">Pacient:</dt>
-                        <dd style="margin: 0 0 15px 0;">${patientName}</dd>
-                        
-                        <dt style="font-weight: bold; margin-bottom: 8px;">Terapija:</dt>
-                        <dd style="margin: 0 0 15px 0;">${therapy}</dd>
-                        
-                        <dt style="font-weight: bold; margin-bottom: 8px;">Datum:</dt>
-                        <dd style="margin: 0 0 15px 0;">${formattedDate}</dd>
-                        
-                        <dt style="font-weight: bold; margin-bottom: 8px;">Čas:</dt>
-                        <dd style="margin: 0 0 15px 0;">${formattedStartTime} - ${formattedEndTime}</dd>
-                        
-                        <dt style="font-weight: bold; margin-bottom: 8px;">Lokacija:</dt>
-                        <dd style="margin: 0 0 15px 0;">${appointment.resourceName || ''}</dd>
-                        
-                        <dt style="font-weight: bold; margin-bottom: 8px;">ID Termina:</dt>
-                        <dd style="margin: 0 0 15px 0;"><span class="appointment-id">${appointment.id}</span></dd>
-                    </dl>
-                    
-                    <div class="button-group" style="display: flex; justify-content: space-between; margin-top: 30px;">
-                        ${deleteButtonHtml}
-                        <div>
-                            <button type="button" class="close-btn" 
-                                    style="padding: 12px 24px; margin-right: 10px; border: none; border-radius: 6px; background-color: #6c757d; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s;"
-                                    onclick="document.querySelector('.appointment-modal').remove()">
-                                Zapri
-                            </button>
-                            ${editButtonHtml}
-                        </div>
+                </div>
+        </div>
+        
+            <!-- Pogled za urejanje (skrit na začetku) -->
+            <div id="edit-view" style="display: none;">
+                <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #f0f0f0; padding-bottom: 15px;">Uredi termin</h2>
+                <form id="appointment-form" style="margin-top: 20px;">
+                    <div class="form-group" style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Pacient:</label>
+                        <input type="text" name="patient_name" value="${patientName}" 
+                               style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box;">
                     </div>
+        
+                    <div class="form-group" style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Terapija:</label>
+                        <input type="text" name="therapy" value="${therapy}" 
+                               style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box;">
                 </div>
                 
-                <!-- Pogled za urejanje (skrit na začetku) -->
-                <div id="edit-view" style="display: none;">
-                    <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #f0f0f0; padding-bottom: 15px;">Uredi termin</h2>
-                    <form id="appointment-form" style="margin-top: 20px;">
-                        <div class="form-group" style="margin-bottom: 25px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Pacient:</label>
-                            <input type="text" name="patient_name" value="${patientName}" 
-                                   style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box;">
-                        </div>
-            
-                        <div class="form-group" style="margin-bottom: 25px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Terapija:</label>
-                            <input type="text" name="therapy" value="${therapy}" 
-                                   style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box;">
-                        </div>
-            
-                        <div class="form-group" style="margin-bottom: 25px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Datum:</label>
-                            <input type="date" name="appointment_date" value="${formattedDate}" 
-                                   style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box;"
-                                   onchange="updateAvailableTimeSlots(this.value, '${appointment.resourceId}', ${appointment.id}, ${durationMinutes})">
-                        </div>
-                    
-                        <div class="form-group" style="margin-bottom: 25px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Čas:</label>
-                            <select id="time-slot-select" name="time_slot" 
-                                    style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box; background-color: white;"
-                                    onchange="updateLocationOptions(this.value, document.querySelector('input[name=appointment_date]').value, ${appointment.id})">
-                                <option value="${formattedStartTime},${formattedEndTime}" selected>${formattedStartTime} - ${formattedEndTime}</option>
-                            </select>
-                        </div>
-                    
-                        <div class="form-group" style="margin-bottom: 25px;">
-                            <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Lokacija:</label>
-                            <select id="location-select" name="location" 
-                                    style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box; background-color: white;"
-                                    onchange="updateAvailableTimeSlots(document.querySelector('input[name=appointment_date]').value, this.value, ${appointment.id}, ${durationMinutes})">
-                                <option value="${appointment.resourceId}" selected>${appointment.resourceName || ''}</option>
-                            </select>
-                        </div>
-            
-                        <input type="hidden" name="appointment_id" value="${appointment.id}">
-
-                        <div class="button-group" style="display: flex; justify-content: space-between; margin-top: 30px;">
-                            <button type="button" class="delete-btn" 
-                                    style="padding: 12px 24px; border: none; border-radius: 6px; background-color: #dc3545; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s;"
-                                    onclick="handleDeleteAppointment(${appointment.id}, () => document.querySelector('.appointment-modal').remove())">
-                                Izbriši termin
-                            </button>
-                            <div style="display: flex; gap: 15px;">
-                                <button type="button" class="cancel-btn" 
-                                        style="padding: 12px 24px; border: none; border-radius: 6px; background-color: #6c757d; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s;"
-                                        onclick="toggleEditMode(false)">
-                                    Prekliči
-                                </button>
-                                <button type="button" class="save-btn" 
-                                        style="padding: 12px 24px; border: none; border-radius: 6px; background-color: #28a745; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s;"
-                                        onclick="handleUpdateAppointment(this.form)">
-                                    Shrani
-                                </button>
-                            </div>
-                        </div>
-                    </form>
+                    <div class="form-group" style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Datum:</label>
+                        <input type="date" name="appointment_date" value="${formattedDate}" 
+                               style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box;"
+                               onchange="updateAvailableTimeSlots(this.value, '${appointment.resourceId}', ${appointment.id}, getCurrentDuration())">
                 </div>
+                
+                    <div class="form-group" style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Trajanje:</label>
+                        <select id="duration-select" name="duration_minutes" 
+                                style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box; background-color: white;"
+                                onchange="updateTimeSlotsWithFixedStart()">
+                            ${generateDurationOptions(durationMinutes)}
+                        </select>
+                    </div>
+                
+                    <div class="form-group" style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Čas:</label>
+                        <select id="time-slot-select" name="time_slot" 
+                                style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box; background-color: white;"
+                                onchange="updateLocationOptions(this.value, document.querySelector('input[name=appointment_date]').value, ${appointment.id})">
+                            <option value="${formattedStartTime},${formattedEndTime}" selected>${formattedStartTime} - ${formattedEndTime}</option>
+                        </select>
+                </div>
+                
+                    <div class="form-group" style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Lokacija:</label>
+                        <select id="location-select" name="location" 
+                                style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box; background-color: white;"
+                                onchange="updateAvailableTimeSlots(document.querySelector('input[name=appointment_date]').value, this.value, ${appointment.id}, getCurrentDuration())">
+                            <option value="${originalResourceId}" selected>${originalResourceName}</option>
+                    </select>
+        </div>
+        
+                    <input type="hidden" name="appointment_id" value="${appointment.id}">
+                    
+                    <div id="conflict-warning" style="display: none; background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 4px; margin-bottom: 20px; border: 1px solid #ffeeba;">
+                        <strong>Opozorilo:</strong> Izbrani termin se prekriva z drugim terminom na tej lokaciji.
+                    </div>
+
+                    <div class="button-group" style="display: flex; justify-content: space-between; margin-top: 30px;">
+                        <button type="button" class="delete-btn" 
+                                style="padding: 12px 24px; border: none; border-radius: 6px; background-color: #dc3545; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s;"
+                                onclick="handleDeleteAppointment(${appointment.id}, () => document.querySelector('.appointment-modal').remove())">
+                            Izbriši termin
+                        </button>
+                        <div style="display: flex; gap: 15px;">
+                            <button type="button" class="cancel-btn" 
+                                    style="padding: 12px 24px; border: none; border-radius: 6px; background-color: #6c757d; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s;"
+                                    onclick="toggleEditMode(false)">
+                                Prekliči
+                            </button>
+                            <button type="button" class="save-btn" 
+                                    style="padding: 12px 24px; border: none; border-radius: 6px; background-color: #28a745; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s;"
+                                    onclick="handleUpdateAppointment(this.form)">
+                                Shrani
+                            </button>
+                        </div>
+                    </div>
+                </form>
             </div>
         </div>
     `;
     
+    // Dodaj HTML v modalni element
+    modalElement.innerHTML = modalContentHtml;
+    
     // Dodaj modal v DOM
-    jQuery('body').append(modalHtml);
+    document.body.appendChild(modalElement);
     
     // Funkcija za prikaz opozorila o pomanjkanju pravic
     window.showPermissionAlert = function() {
@@ -952,6 +1029,9 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
     
     // Funkcija za preklop med pogledi, ki upošteva pravice
     window.toggleEditMode = function(showEditMode) {
+        console.log('Vrednost lokacije pred preklopom:', 
+            document.querySelector('#location-select')?.value);
+    
         if (showEditMode && !canEdit) {
             showPermissionAlert();
             return;
@@ -961,41 +1041,314 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
         const editView = document.getElementById('edit-view');
         
         if (showEditMode) {
+            // Shrani originalne vrednosti
+            originalAppointmentValues = {
+                patientName: document.querySelector('input[name="patient_name"]').value,
+                therapy: document.querySelector('input[name="therapy"]').value,
+                date: document.querySelector('input[name="appointment_date"]').value,
+                duration: document.querySelector('select[name="duration_minutes"]').value,
+                timeSlot: document.querySelector('select[name="time_slot"]').value,
+                location: document.querySelector('select[name="location"]').value
+            };
+            
+            console.log('Shranjene originalne vrednosti:', originalAppointmentValues);
+
+            // Uporabite pravilni selektor in dodajte preverjanje, da se ne zlomi, če element ne obstaja
+            const locationElement = document.querySelector('#details-view dd:nth-of-type(6)');
+            const locationText = locationElement ? locationElement.textContent : '';
+            console.log('Shranjena lokacija iz podrobnosti:', locationText);
+    
             detailsView.style.display = 'none';
             editView.style.display = 'block';
             
-            // Load available time slots and locations
+            // Počisti morebitna opozorila
+            const conflictWarning = document.getElementById('conflict-warning');
+            if (conflictWarning) {
+                conflictWarning.style.display = 'none';
+            }
+            
+            // Naloži razpoložljive časovne termine in lokacije
             setTimeout(() => {
+                updateAvailableTimeSlots(formattedDate, window.currentAppointmentLocation.id, appointment.id, getCurrentDuration());
                 updateLocationOptions(`${formattedStartTime},${formattedEndTime}`, formattedDate, appointment.id);
-                updateAvailableTimeSlots(formattedDate, appointment.resourceId, appointment.id, durationMinutes);
+                
+                // Dodajte setTimeout za dodajanje event listenerja
+                setTimeout(() => {
+                    addLocationChangeListener();
+                }, 500);
             }, 100);
         } else {
+            // Obnovi originalne vrednosti
+            if (originalAppointmentValues) {
+                console.log('Obnavljam originalne vrednosti:', originalAppointmentValues);
+                
+                document.querySelector('input[name="patient_name"]').value = originalAppointmentValues.patientName;
+                document.querySelector('input[name="therapy"]').value = originalAppointmentValues.therapy;
+                document.querySelector('input[name="appointment_date"]').value = originalAppointmentValues.date;
+                document.querySelector('select[name="duration_minutes"]').value = originalAppointmentValues.duration;
+                
+                // Obnovi časovni termin
+                const timeSlotSelect = document.querySelector('select[name="time_slot"]');
+                timeSlotSelect.innerHTML = `<option value="${originalAppointmentValues.timeSlot}" selected>${originalAppointmentValues.timeSlot.replace(',', ' - ')}</option>`;
+                
+                // Obnovi lokacijo
+                const locationSelect = document.querySelector('select[name="location"]');
+                if (locationSelect && window.currentAppointmentLocation) {
+                    locationSelect.innerHTML = `<option value="${window.currentAppointmentLocation.id}" selected>${window.currentAppointmentLocation.name}</option>`;
+                }
+            }
+            
+            // Ponastavi userSelectedLocationId ob izhodu iz načina urejanja
+            userSelectedLocationId = null;
             detailsView.style.display = 'block';
             editView.style.display = 'none';
         }
     };
+
+    // Nova funkcija za pridobivanje trenutno izbranega trajanja
+    window.getCurrentDuration = function() {
+        const durationSelect = document.getElementById('duration-select');
+        return durationSelect ? parseInt(durationSelect.value) : 30;
+    };
+    
+    // Nova funkcija za posodobitev časovnih terminov ob spremembi trajanja (z ohranjanjem začetnega časa)
+    window.updateTimeSlotsWithFixedStart = function() {
+        const timeSlotSelect = document.getElementById('time-slot-select');
+        const durationSelect = document.getElementById('duration-select');
+        const dateInput = document.querySelector('input[name="appointment_date"]');
+        const locationSelect = document.getElementById('location-select');
+        
+        if (!timeSlotSelect || !durationSelect || !dateInput || !locationSelect) return;
+        
+        // Shrani trenutni začetni čas
+        const currentTimeSlot = timeSlotSelect.value;
+        const [currentStart] = currentTimeSlot.split(',').map(t => t.trim());
+        
+        // Pridobi novo trajanje
+        const newDuration = parseInt(durationSelect.value);
+        const date = dateInput.value;
+        const locationId = locationSelect.value;
+        const appointmentId = document.querySelector('input[name="appointment_id"]').value;
+        
+        // Pokaži stanje nalaganja
+        timeSlotSelect.disabled = true;
+        timeSlotSelect.innerHTML = '<option value="">Nalagam razpoložljive termine...</option>';
+        
+        // Pridobi vse možne časovne termine za trenutno trajanje
+        jQuery.ajax({
+            url: ameliaAjax.ajaxurl,
+            type: 'POST',
+            data: {
+                action: 'amelia_get_available_time_slots',
+                security: ameliaAjax.nonce,
+                date: date,
+                location: locationId,
+                duration_minutes: newDuration,
+                appointment_id: appointmentId
+            },
+            success: function(response) {
+                timeSlotSelect.innerHTML = '';
+                
+                if (response.success && response.data && response.data.available_slots) {
+                    // Najprej poskusi najti termin z istim začetnim časom
+                    let currentStartSlot = response.data.available_slots.find(slot => slot.start === currentStart);
+                    
+                    // Preveri, če je trenutni začetni čas še vedno veljaven (ne gre čez 20:00)
+                    if (currentStartSlot) {
+                        const [endHour, endMinutes] = currentStartSlot.end.split(':').map(Number);
+                        if (endHour > 20 || (endHour === 20 && endMinutes > 0)) {
+                            currentStartSlot = null; // Razveljavi trenutni začetni čas, če gre čez 20:00
+                        }
+                    }
+
+                    // Filtriraj vse veljavne termine (do 20:00)
+                    const validSlots = response.data.available_slots.filter(slot => {
+                        const [endHour, endMinutes] = slot.end.split(':').map(Number);
+                        return endHour <= 20 && (endHour < 20 || endMinutes === 0);
+                    });
+
+                    if (validSlots.length > 0) {
+                        // Če imamo veljaven trenutni začetni čas, ga dodaj prvega in izberi
+                        if (currentStartSlot && validSlots.some(slot => slot.start === currentStart)) {
+                            const option = document.createElement('option');
+                            option.value = `${currentStartSlot.start},${currentStartSlot.end}`;
+                            option.textContent = `${currentStartSlot.start} - ${currentStartSlot.end}`;
+                            option.selected = true;
+                            timeSlotSelect.appendChild(option);
+                        }
+
+                        // Dodaj vse ostale veljavne termine
+                        validSlots.forEach(slot => {
+                            if (slot.start !== currentStart) {
+                                const option = document.createElement('option');
+                                option.value = `${slot.start},${slot.end}`;
+                                option.textContent = `${slot.start} - ${slot.end}`;
+                                timeSlotSelect.appendChild(option);
+                            }
+                        });
+
+                        // Če nismo mogli ohraniti trenutnega začetnega časa, izberi prvi razpoložljiv termin
+                        if (!currentStartSlot && timeSlotSelect.options.length > 0) {
+                            timeSlotSelect.options[0].selected = true;
+                        }
+
+                        // Preveri za prekrivanja z izbranim terminom
+                        const selectedOption = timeSlotSelect.options[timeSlotSelect.selectedIndex];
+                        const [start, end] = selectedOption.value.split(',');
+                        checkForOverlaps(date, locationId, start, end, appointmentId);
+
+                        // Skrij opozorilo
+                        const conflictWarning = document.getElementById('conflict-warning');
+                        if (conflictWarning) {
+                            conflictWarning.style.display = 'none';
+                        }
+
+                        // Omogoči gumb za shranjevanje
+                        const saveButton = document.querySelector('.save-btn');
+                        if (saveButton) {
+                            saveButton.disabled = false;
+                            saveButton.style.opacity = '1';
+                            saveButton.style.cursor = 'pointer';
+                        }
+                    } else {
+                        // Ni veljavnih terminov
+                        const option = document.createElement('option');
+                        option.value = "";
+                        option.textContent = "Ni razpoložljivih terminov za izbrano trajanje";
+                        timeSlotSelect.appendChild(option);
+                        
+                        const conflictWarning = document.getElementById('conflict-warning');
+                        if (conflictWarning) {
+                            conflictWarning.style.display = 'block';
+                            conflictWarning.innerHTML = '<strong>Opozorilo:</strong> Za izbrano trajanje ni razpoložljivih terminov.';
+                        }
+                        
+                        // Onemogoči gumb za shranjevanje
+                        const saveButton = document.querySelector('.save-btn');
+                        if (saveButton) {
+                            saveButton.disabled = true;
+                            saveButton.style.opacity = '0.65';
+                            saveButton.style.cursor = 'not-allowed';
+                        }
+                    }
+                }
+                
+                timeSlotSelect.disabled = false;
+            },
+            error: function(xhr, status, error) {
+                console.error('Napaka pri pridobivanju terminov:', error);
+                timeSlotSelect.innerHTML = '<option value="">Napaka pri nalaganju terminov</option>';
+                timeSlotSelect.disabled = false;
+            }
+        });
+    };
+    
+    // Funkcija za preverjanje prekrivanja
+    window.checkForOverlaps = function(date, locationId, startTime, endTime, appointmentId) {
+    const conflictWarning = document.getElementById('conflict-warning');
+        const saveButton = document.querySelector('.save-btn');
+    
+        if (!conflictWarning || !saveButton) return;
+    
+    jQuery.ajax({
+        url: ameliaAjax.ajaxurl,
+        type: 'POST',
+        data: {
+            action: 'amelia_check_time_conflicts',
+            security: ameliaAjax.nonce,
+            date: date,
+            location: locationId,
+            start_time: startTime,
+            end_time: endTime,
+            appointment_id: appointmentId
+        },
+        success: function(response) {
+                if (response.success && response.data) {
+                    if (response.data.has_conflict) {
+                        conflictWarning.style.display = 'block';
+                        saveButton.disabled = true;
+                        saveButton.style.opacity = '0.65';
+                        saveButton.style.cursor = 'not-allowed';
+                    } else {
+                        conflictWarning.style.display = 'none';
+                        saveButton.disabled = false;
+                        saveButton.style.opacity = '1';
+                        saveButton.style.cursor = 'pointer';
+                    }
+                }
+            },
+            error: function() {
+                console.error('Napaka pri preverjanju prekrivanja.');
+            }
+        });
+    };
     
     // Dodaj handler za zapiranje modala
-    document.querySelector('.close-button').addEventListener('click', function() {
-        document.querySelector('.appointment-modal').remove();
+    const closeButtons = modalElement.querySelectorAll('.close-button, .close-btn');
+    closeButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            modalElement.remove();
+        });
     });
+    
+    // Dodaj handler za zapiranje modala ob kliku izven vsebine
+    modalElement.addEventListener('click', function(e) {
+        if (e.target === modalElement) {
+            modalElement.remove();
+        }
+    });
+}
+
+// Nova funkcija za generiranje opcij trajanja (od 30 minut do 9.5 ur na 30 minut)
+function generateDurationOptions(currentDuration) {
+    let options = '';
+    // Od 30 minut do 9.5 ur (570 minut) v korakih po 30 minut
+    for (let minutes = 30; minutes <= 570; minutes += 30) {
+        const hours = Math.floor(minutes / 60);
+        const remainingMinutes = minutes % 60;
+        let displayText = '';
+        
+        if (hours > 0) {
+            displayText = hours + (hours === 1 ? ' ura' : (hours === 2 ? ' uri' : (hours <= 4 ? ' ure' : ' ur')));
+            if (remainingMinutes > 0) {
+                displayText += ' ' + remainingMinutes + ' min';
+            }
+        } else {
+            displayText = minutes + ' min';
+        }
+        
+        const isSelected = (Math.round(currentDuration) === minutes) ? 'selected' : '';
+        options += `<option value="${minutes}" ${isSelected}>${displayText}</option>`;
+    }
+    return options;
 }
 
 function updateAvailableTimeSlots(date, locationId, appointmentId, durationMinutes) {
     const timeSelect = document.querySelector('#time-slot-select');
     if (!timeSelect) return;
     
-    // Keep track of currently selected value
-    const currentValue = timeSelect.value;
+    // Shrani trenutno izbrani časovni interval, če obstaja
+    let currentStart = null;
+    let currentEnd = null;
+    
+    if (timeSelect.value) {
+        const parts = timeSelect.value.split(',');
+        if (parts.length === 2) {
+            currentStart = parts[0].trim();
+            currentEnd = parts[1].trim();
+        }
+    }
     
     console.log('Posodabljam razpoložljive časovne termine:', {
         date: date,
         locationId: locationId,
         appointmentId: appointmentId,
-        durationMinutes: durationMinutes
+        durationMinutes: durationMinutes,
+        currentStart: currentStart,
+        currentEnd: currentEnd
     });
     
-    // Show loading state
+    // Pokaži stanje nalaganja
     timeSelect.disabled = true;
     timeSelect.innerHTML = '<option value="">Nalagam razpoložljive termine...</option>';
     
@@ -1008,7 +1361,8 @@ function updateAvailableTimeSlots(date, locationId, appointmentId, durationMinut
             date: date,
             location: locationId,
             duration_minutes: durationMinutes,
-            appointment_id: appointmentId
+            appointment_id: appointmentId,
+            current_start: currentStart // Pošljemo trenutni začetni čas, če obstaja
         },
         success: function(response) {
             console.log('Odgovor termini:', response);
@@ -1016,45 +1370,56 @@ function updateAvailableTimeSlots(date, locationId, appointmentId, durationMinut
             timeSelect.innerHTML = '';
             
             if (response.success && response.data && response.data.available_slots) {
-                let foundSelected = false;
+                let foundCurrentStart = false;
+                let selectedSlot = null;
                 
                 response.data.available_slots.forEach(slot => {
                     const option = document.createElement('option');
                     option.value = `${slot.start},${slot.end}`;
                     option.textContent = `${slot.start} - ${slot.end}`;
                     
-                    // If this was the previously selected value, select it again
-                    if (option.value === currentValue) {
+                    // Če je to slot z istim začetnim časom kot trenutni, ga izberemo
+                    if (slot.start === currentStart) {
                         option.selected = true;
-                        foundSelected = true;
+                        foundCurrentStart = true;
+                        selectedSlot = slot;
                     }
                     
                     timeSelect.appendChild(option);
                 });
                 
-                // If we didn't find the previously selected slot, select the first available one
-                if (!foundSelected && response.data.available_slots.length > 0) {
+                // Če nismo našli slota z istim začetnim časom ali ga ni več na voljo
+                if (!foundCurrentStart && response.data.available_slots.length > 0) {
+                    // Izberemo prvi razpoložljivi slot
                     timeSelect.value = `${response.data.available_slots[0].start},${response.data.available_slots[0].end}`;
-                    
-                    // We need to trigger location update with the new time slot
-                    const newTimeSlot = timeSelect.value;
+                    selectedSlot = response.data.available_slots[0];
+                }
+                
+                // Če je bil izbran slot, preveri za prekrivanja
+                if (selectedSlot) {
+                    checkForOverlaps(date, locationId, selectedSlot.start, selectedSlot.end, appointmentId);
+                }
+                
+                // Če smo spremenili izbiro, posodobi lokacije
+                if (selectedSlot) {
+                    const newTimeSlot = `${selectedSlot.start},${selectedSlot.end}`;
                     updateLocationOptions(newTimeSlot, date, appointmentId);
                 }
             } else if (response.data && response.data.message) {
-                // Show error message
+                // Pokaži sporočilo o napaki
                 const option = document.createElement('option');
                 option.value = "";
                 option.textContent = response.data.message;
                 timeSelect.appendChild(option);
             } else {
-                // Generic error message
+                // Generično sporočilo o napaki
                 const option = document.createElement('option');
                 option.value = "";
                 option.textContent = "Ni razpoložljivih terminov";
                 timeSelect.appendChild(option);
             }
             
-            // Re-enable select
+            // Ponovno omogoči select
             timeSelect.disabled = false;
         },
         error: function(xhr, status, error) {
@@ -1064,7 +1429,7 @@ function updateAvailableTimeSlots(date, locationId, appointmentId, durationMinut
                 responseText: xhr.responseText
             });
             
-            // Show error message
+            // Pokaži sporočilo o napaki
             timeSelect.innerHTML = '<option value="">Napaka pri nalaganju terminov</option>';
             timeSelect.disabled = false;
         }
@@ -1074,7 +1439,10 @@ function updateAvailableTimeSlots(date, locationId, appointmentId, durationMinut
 function updateLocationOptions(timeSlot, date, appointmentId) {
     const [startTime, endTime] = timeSlot.split(',');
     const locationSelect = document.querySelector('#location-select');
-    const currentLocationId = locationSelect ? locationSelect.value : '';
+
+    // Uporabi userSelectedLocationId, če obstaja, sicer uporabi trenutno lokacijo
+    const currentLocationId = userSelectedLocationId || window.currentAppointmentLocation?.id || (locationSelect ? locationSelect.value : '');
+    console.log('Trenutna lokacija:', currentLocationId, 'Uporabniško izbrana:', userSelectedLocationId);
     
     // Onemogoči select med nalaganjem
     if (locationSelect) {
@@ -1097,8 +1465,11 @@ function updateLocationOptions(timeSlot, date, appointmentId) {
             console.log('Odgovor lokacij:', response);
             
             if (response.success && response.data && response.data.locations) {
-                // Uporabite novo funkcijo za prikaz lokacij s podatki o razpoložljivosti
-                populateLocationSelect(response.data.locations, currentLocationId);
+                // Shrani lokacijo, ki jo želimo izbrati
+                const locationToSelect = userSelectedLocationId || currentLocationId;
+                
+                // Uporabite funkcijo za prikaz lokacij s podatki o razpoložljivosti
+                populateLocationSelect(response.data.locations, locationToSelect);
                 
                 // Omogoči select
                 if (locationSelect) {
@@ -1120,6 +1491,199 @@ function updateLocationOptions(timeSlot, date, appointmentId) {
                 locationSelect.innerHTML = '<option value="">Napaka pri nalaganju lokacij</option>';
                 locationSelect.disabled = false;
             }
+        }
+    });
+}
+
+function addLocationChangeListener() {
+    const locationSelect = document.getElementById('location-select');
+    if (locationSelect) {
+        locationSelect.addEventListener('change', function() {
+            // Ob spremembi lokacije, shrani vrednost v globalno spremenljivko
+            userSelectedLocationId = this.value;
+            console.log('Uporabnik je izbral novo lokacijo:', userSelectedLocationId);
+            
+            // Odstranimo vrstico, ki povzroča napako, ker ni potrebna
+            // const timeSlotSelect = document.getElementById('time-slot-select');
+            // if (timeSlotSelect) {
+            //     timeSlotSelect.removeEventListener('change', updateLocationOptionsHandler);
+            // }
+        });
+    }
+}
+
+// Funkcija za posodobitev opcij začetnega časa
+function updateStartTimeOptions(date, locationId, appointmentId) {
+    const startTimeSelect = document.getElementById('start-time-select');
+    if (!startTimeSelect) return;
+    
+    // Shrani trenutno izbrano vrednost
+    const currentValue = startTimeSelect.value;
+    
+    // Pokaži stanje nalaganja
+    startTimeSelect.disabled = true;
+    startTimeSelect.innerHTML = '<option value="">Nalagam razpoložljive začetne čase...</option>';
+    
+    jQuery.ajax({
+        url: ameliaAjax.ajaxurl,
+        type: 'POST',
+        data: {
+            action: 'amelia_get_available_start_times',
+            security: ameliaAjax.nonce,
+            date: date,
+            location: locationId,
+            appointment_id: appointmentId
+        },
+        success: function(response) {
+            console.log('Odgovor začetni časi:', response);
+            
+            startTimeSelect.innerHTML = '';
+            
+            if (response.success && response.data && response.data.available_times) {
+                let foundSelected = false;
+                
+                response.data.available_times.forEach(time => {
+                    const option = document.createElement('option');
+                    option.value = time;
+                    option.textContent = time;
+                    
+                    // Če je to prejšnja izbrana vrednost, jo ponovno izberemo
+                    if (time === currentValue) {
+                        option.selected = true;
+                        foundSelected = true;
+                    }
+                    
+                    startTimeSelect.appendChild(option);
+                });
+                
+                // Če nismo našli prej izbrane vrednosti, izberemo prvo opcijo
+                if (!foundSelected && response.data.available_times.length > 0) {
+                    startTimeSelect.value = response.data.available_times[0];
+                }
+                
+                // Posodobi končni čas in preveri konflikte
+                updateEndTimeAndCheckConflicts();
+            } else {
+                // Prikaži sporočilo o napaki
+                const option = document.createElement('option');
+                option.value = "";
+                option.textContent = response.data?.message || "Ni razpoložljivih začetnih časov";
+                startTimeSelect.appendChild(option);
+            }
+            
+            // Ponovno omogoči select
+            startTimeSelect.disabled = false;
+        },
+        error: function(xhr, status, error) {
+            console.error('Ajax napaka:', {
+                status: xhr.status,
+                statusText: xhr.statusText,
+                responseText: xhr.responseText
+            });
+            
+            startTimeSelect.innerHTML = '<option value="">Napaka pri nalaganju začetnih časov</option>';
+            startTimeSelect.disabled = false;
+        }
+    });
+}
+
+// Funkcija za posodobitev končnega časa in preverjanje konfliktov
+function updateEndTimeAndCheckConflicts() {
+    const startTimeSelect = document.getElementById('start-time-select');
+    const durationSelect = document.getElementById('duration-select');
+    const endTimeDisplay = document.getElementById('end-time-display');
+    const locationSelect = document.getElementById('location-select');
+    const dateInput = document.querySelector('input[name="appointment_date"]');
+    const appointmentId = document.querySelector('input[name="appointment_id"]').value;
+    
+    if (!startTimeSelect || !durationSelect || !endTimeDisplay || !dateInput) return;
+    
+    const startTime = startTimeSelect.value;
+    const duration = parseInt(durationSelect.value);
+    const date = dateInput.value;
+    const locationId = locationSelect ? locationSelect.value : '';
+    
+    // Izračunaj nov končni čas
+    const endTime = calculateEndTime(startTime, duration);
+    endTimeDisplay.value = endTime;
+    
+    // Preveri konflikte s to kombinacijo začetnega časa, trajanja in lokacije
+    checkTimeConflicts(date, locationId, startTime, endTime, appointmentId);
+    
+    // Posodobi razpoložljive lokacije
+    updateLocationOptions(startTime + ',' + endTime, date, appointmentId);
+}
+
+// Funkcija za posodobitev tako končnega časa kot lokacijskih opcij
+function updateEndTimeAndLocationOptions() {
+    updateEndTimeAndCheckConflicts();
+}
+
+// Funkcija za preverjanje konfliktov
+function checkTimeConflicts(date, locationId, startTime, endTime, appointmentId) {
+    if (!date || !locationId || !startTime || !endTime || !appointmentId) return;
+    
+    // Pokaži indikator preverjanja
+    const saveBtn = document.querySelector('.save-btn');
+    const conflictWarning = document.getElementById('conflict-warning');
+    
+    // Odstrani obstoječe opozorilo
+    if (conflictWarning) {
+        conflictWarning.remove();
+    }
+    
+    jQuery.ajax({
+        url: ameliaAjax.ajaxurl,
+        type: 'POST',
+        data: {
+            action: 'amelia_check_time_conflicts',
+            security: ameliaAjax.nonce,
+            date: date,
+            location: locationId,
+            start_time: startTime,
+            end_time: endTime,
+            appointment_id: appointmentId
+        },
+        success: function(response) {
+            console.log('Preverjanje konfliktov:', response);
+            
+            if (response.success) {
+                if (response.data && response.data.has_conflict) {
+                    // Prikaži opozorilo o konfliktu
+                    const warningDiv = document.createElement('div');
+                    warningDiv.id = 'conflict-warning';
+                    warningDiv.style.backgroundColor = '#fff3cd';
+                    warningDiv.style.color = '#856404';
+                    warningDiv.style.padding = '10px';
+                    warningDiv.style.borderRadius = '4px';
+                    warningDiv.style.marginBottom = '20px';
+                    warningDiv.style.border = '1px solid #ffeeba';
+                    warningDiv.innerHTML = '<strong>Opozorilo:</strong> Izbrani termin se prekriva z drugim terminom na tej lokaciji.';
+                    
+                    // Vstavi opozorilo pred gumbi
+                    const buttonGroup = document.querySelector('.button-group');
+                    if (buttonGroup) {
+                        buttonGroup.parentNode.insertBefore(warningDiv, buttonGroup);
+                    }
+                    
+                    // Onemogoči gumb za shranjevanje
+                    if (saveBtn) {
+                        saveBtn.disabled = true;
+                        saveBtn.style.backgroundColor = '#6c757d';
+                        saveBtn.style.cursor = 'not-allowed';
+                    }
+                } else {
+                    // Omogoči gumb za shranjevanje
+                    if (saveBtn) {
+                saveBtn.disabled = false;
+                        saveBtn.style.backgroundColor = '#28a745';
+                        saveBtn.style.cursor = 'pointer';
+                    }
+                }
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Napaka pri preverjanju konfliktov:', error);
         }
     });
 }
@@ -1194,20 +1758,30 @@ function handleUpdateAppointment(form) {
     const date = form.querySelector('input[name="appointment_date"]').value;
     const timeSlot = form.querySelector('select[name="time_slot"]').value;
     const locationId = form.querySelector('select[name="location"]').value;
+    const durationMinutes = parseInt(form.querySelector('select[name="duration_minutes"]').value);
     
     // Pridobi vrednosti za pacienta in terapijo
     const patientName = form.querySelector('input[name="patient_name"]').value.trim();
     const therapy = form.querySelector('input[name="therapy"]').value.trim();
     
     // Preveri če imamo vse potrebne podatke
-    if (!appointmentId || !date || !timeSlot || !locationId) {
-        console.error('Manjkajoči podatki:', { appointmentId, date, timeSlot, locationId });
-        alert('Prosim izpolnite vsa obvezna polja (Datum, Čas in Lokacija)');
+    if (!appointmentId || !date || !timeSlot || !locationId || isNaN(durationMinutes)) {
+        console.error('Manjkajoči podatki:', { appointmentId, date, timeSlot, locationId, durationMinutes });
+        alert('Prosim izpolnite vsa obvezna polja (Datum, Čas, Trajanje in Lokacija)');
         return;
     }
-
-    const [startTime, endTime] = timeSlot.split(',').map(time => time.trim());
-
+    
+    // Preveri za morebitna opozorila o konfliktu
+    const conflictWarning = document.getElementById('conflict-warning');
+    if (conflictWarning && conflictWarning.style.display !== 'none') {
+        if (!confirm('POZOR: Izbrani termin se prekriva z obstoječim terminom. Ali ste prepričani, da želite nadaljevati?')) {
+            return;
+        }
+    }
+    
+    // Razdeli časovni termin na začetek in konec
+    let [startTime, endTime] = timeSlot.split(',').map(time => time.trim());
+    
     // Pripravi objekt s podatki o pacientu
     const patientInfo = {
         firstName: patientName,
@@ -1223,12 +1797,13 @@ function handleUpdateAppointment(form) {
             action: 'amelia_update_appointment',
             security: ameliaAjax.nonce,
             appointment_id: appointmentId,
-            patient_info: patientInfo,  // Pravilno pošiljanje podatkov o pacientu
+            patient_info: patientInfo,
             location: locationId,
             appointment_date: date,
             start_time: startTime,
-            end_time: endTime
-        },        
+            end_time: endTime,
+            duration_minutes: durationMinutes
+        },
         beforeSend: function() {
             // Onemogoči gumbe med pošiljanjem zahtevka
             const saveBtn = form.querySelector('.save-btn');
@@ -1244,15 +1819,22 @@ function handleUpdateAppointment(form) {
                 locationId,
                 date,
                 startTime,
-                endTime
+                endTime,
+                durationMinutes
             });
         },
         success: function(response) {
             console.log('Odgovor strežnika:', response);
+            userSelectedLocationId = null;
             if (response.success) {
-                alert('Termin je bil uspešno posodobljen.');
+                // Zapri modalno okno
                 form.closest('.appointment-modal').remove();
-                location.reload();
+                
+                // Posodobi podatke v časovnici brez osveževanja celotne strani
+                refreshCalendarData();
+                
+                // Prikaži sporočilo o uspehu
+                showNotification('Termin je bil uspešno posodobljen');
             } else {
                 console.error('Napaka:', response);
                 alert(response.data?.message || 'Napaka pri shranjevanju termina.');
@@ -1260,7 +1842,7 @@ function handleUpdateAppointment(form) {
                 // Ponovno omogoči gumb za shranjevanje
                 const saveBtn = form.querySelector('.save-btn');
                 if (saveBtn) {
-                    saveBtn.disabled = false;
+            saveBtn.disabled = false;
                     saveBtn.innerHTML = 'Shrani';
                     saveBtn.style.backgroundColor = '#28a745';
                 }
@@ -1290,6 +1872,101 @@ function handleUpdateAppointment(form) {
     });
 }
 
+// Nova funkcija za izračun končnega časa glede na začetni čas in trajanje
+function calculateEndTime(startTime, durationMinutes) {
+    // Razdeli startTime na ure in minute
+    let [hours, minutes] = startTime.split(':').map(num => parseInt(num, 10));
+    
+    // Dodaj trajanje v minutah
+    minutes += durationMinutes;
+    
+    // Pretvori presežek minut v ure
+    hours += Math.floor(minutes / 60);
+    minutes = minutes % 60;
+    
+    // Formatiraj končni čas v obliki "HH:MM"
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+}
+
+function refreshCalendarData() {
+    // Prikaži indikator nalaganja
+    const calendarContainer = document.querySelector('.calendar-container');
+    if (calendarContainer) {
+        const loadingOverlay = document.createElement('div');
+        loadingOverlay.className = 'loading-overlay';
+        loadingOverlay.innerHTML = '<div class="loading-spinner"></div>';
+        loadingOverlay.style.position = 'absolute';
+        loadingOverlay.style.top = '0';
+        loadingOverlay.style.left = '0';
+        loadingOverlay.style.width = '100%';
+        loadingOverlay.style.height = '100%';
+        loadingOverlay.style.backgroundColor = 'rgba(255, 255, 255, 0.7)';
+        loadingOverlay.style.display = 'flex';
+        loadingOverlay.style.justifyContent = 'center';
+        loadingOverlay.style.alignItems = 'center';
+        loadingOverlay.style.zIndex = '10';
+        
+        calendarContainer.style.position = 'relative';
+        calendarContainer.appendChild(loadingOverlay);
+    }
+    
+    // Pridobi sveže podatke s strežnika
+    fetchData(function(data) {
+        // Odstrani indikator nalaganja
+        const loadingOverlay = document.querySelector('.loading-overlay');
+        if (loadingOverlay) {
+            loadingOverlay.remove();
+        }
+        
+        // Posodobi prikaz v časovnici
+        if (data && data.resources) {
+            loadCalendar(data);
+        }
+    });
+}
+
+function showNotification(message) {
+    // Ustvari element za obvestilo
+    const notification = document.createElement('div');
+    notification.className = 'success-notification';
+    notification.textContent = message;
+    notification.style.position = 'fixed';
+    notification.style.top = '20px';
+    notification.style.right = '20px';
+    notification.style.backgroundColor = '#28a745';
+    notification.style.color = 'white';
+    notification.style.padding = '10px 20px';
+    notification.style.borderRadius = '4px';
+    notification.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+    notification.style.zIndex = '9999';
+    notification.style.transition = 'opacity 0.5s ease-in-out';
+    
+    // Dodaj animacijo prihoda
+    notification.style.opacity = '0';
+    document.body.appendChild(notification);
+    
+    // Animiraj prikaz
+    setTimeout(() => {
+        notification.style.opacity = '1';
+    }, 10);
+    
+    // Samodejno zapri po 3 sekundah
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        setTimeout(() => {
+            notification.remove();
+        }, 500);
+    }, 3000);
+}
+
+function closeAllModals() {
+    // Odstrani vse obstoječe modalne elemente
+    const existingModals = document.querySelectorAll('.appointment-modal');
+    existingModals.forEach(modal => {
+        modal.remove();
+    });
+}
+
 // Funkcija za brisanje termina
 function handleDeleteAppointment(appointmentId, closeModal) {
     if (confirm('Ali ste prepričani, da želite izbrisati ta termin?')) {
@@ -1297,21 +1974,53 @@ function handleDeleteAppointment(appointmentId, closeModal) {
         url: ameliaAjax.ajaxurl,
         type: 'POST',
         data: {
-                    action: 'amelia_delete_appointment',
-                    security: ameliaAjax.nonce,
-                    appointment_id: appointmentId
+                action: 'amelia_delete_appointment',
+                security: ameliaAjax.nonce,
+                appointment_id: appointmentId
+            },
+            beforeSend: function() {
+                // Dodajte vizualno povratno informacijo, da je zahteva v teku
+                const deleteBtn = document.querySelector('.delete-btn');
+                if (deleteBtn) {
+                    deleteBtn.disabled = true;
+                    deleteBtn.textContent = 'Brisanje...';
+                    deleteBtn.style.backgroundColor = '#dc354580'; // Prosojni rdeč
+                }
         },
         success: function(response) {
-                    if (response.success) {
-                        closeModal();
-                        location.reload();
-                    } else {
-                        alert('Napaka pri brisanju termina.');
+                if (response.success) {
+                    // Zapri modalno okno
+                    closeModal();
+                    
+                    // Namesto osveževanja celotne strani, samo posodobi podatke
+                    refreshCalendarData();
+                    
+                    // Prikažite obvestilo o uspešnem brisanju
+                    showNotification('Termin je bil uspešno izbrisan');
+                } else {
+                    // Omogoči gumb nazaj, če pride do napake
+                    const deleteBtn = document.querySelector('.delete-btn');
+                    if (deleteBtn) {
+                        deleteBtn.disabled = false;
+                        deleteBtn.textContent = 'Izbriši termin';
+                        deleteBtn.style.backgroundColor = '#dc3545';
                     }
-                },
-                error: function(error) {
-                    console.error('Napaka:', error);
-                    alert('Prišlo je do napake pri brisanju termina.');
+                    
+                    alert('Napaka pri brisanju termina: ' + (response.data?.message || 'Neznana napaka'));
+                }
+        },
+        error: function(xhr, status, error) {
+                console.error('Napaka:', error);
+                
+                // Omogoči gumb nazaj, če pride do napake
+                const deleteBtn = document.querySelector('.delete-btn');
+                if (deleteBtn) {
+                    deleteBtn.disabled = false;
+                    deleteBtn.textContent = 'Izbriši termin';
+                    deleteBtn.style.backgroundColor = '#dc3545';
+                }
+                
+                alert('Prišlo je do napake pri brisanju termina.');
         }
     });
 }
@@ -1339,6 +2048,8 @@ document.addEventListener('DOMContentLoaded', function() {
 function populateLocationSelect(availableLocations, currentLocationId) {
     const locationSelect = document.querySelector('#location-select');
     if (!locationSelect || !organizedLocations) return;
+    
+    console.log('Napolni lokacije z:', currentLocationId);
     
     // Očisti obstoječe opcije
     locationSelect.innerHTML = '';
@@ -1396,4 +2107,89 @@ function populateLocationSelect(availableLocations, currentLocationId) {
                 });
             });
         });
+    
+    // Po končanem napolnjevanju seznama eksplicitno nastavimo izbrano vrednost
+    if (currentLocationId) {
+        // Poskusi najti in izbrati opcijo po ID
+        let found = false;
+        for (let i = 0; i < locationSelect.options.length; i++) {
+            if (locationSelect.options[i].value === currentLocationId) {
+                locationSelect.options[i].selected = true;
+                found = true;
+                console.log('Izbrana lokacija:', locationSelect.options[i].textContent);
+                break;
+            }
+        }
+        
+        // Če lokacija ni bila najdena in je bila onemogočena, dodaj novo opcijo
+        if (!found) {
+            // Poišči original lokacijo v podatkih
+            const originalLocation = window.currentAppointmentLocation;
+            if (originalLocation && originalLocation.id && originalLocation.name) {
+                // Dodaj opcijo za original lokacijo
+                const option = document.createElement('option');
+                option.value = originalLocation.id;
+                option.textContent = originalLocation.name;
+                option.selected = true;
+                
+                // Dodaj na začetek seznama
+                if (locationSelect.options.length > 0) {
+                    locationSelect.insertBefore(option, locationSelect.options[0]);
+                } else {
+                    locationSelect.appendChild(option);
+                }
+                
+                console.log('Dodana originalna lokacija:', originalLocation.name);
+            }
+        }
+    }
+    
+    // Nastavi vrednost onemogočenim opcijam, tudi če niso izbrane
+    for (let i = 0; i < locationSelect.options.length; i++) {
+        if (locationSelect.options[i].disabled) {
+            // Če je disabled, ampak je treba izbrati to lokacijo, omogoči izbor
+            if (locationSelect.options[i].value === currentLocationId) {
+                locationSelect.options[i].disabled = false;
+                locationSelect.options[i].selected = true;
+                console.log('Omogočil in izbral sicer nedostopno lokacijo:', locationSelect.options[i].textContent);
+            }
+        }
+    }
+    
+    // Še enkrat preveri, če je lokacija izbrana, in če ne, poskusi izbrati prvo razpoložljivo
+    let hasSelected = false;
+    for (let i = 0; i < locationSelect.options.length; i++) {
+        if (locationSelect.options[i].selected) {
+            hasSelected = true;
+            break;
+        }
+    }
+    
+    // Če ni izbrano nič, izberi prvo opcijo, ki ni onemogočena
+    if (!hasSelected && locationSelect.options.length > 0) {
+        for (let i = 0; i < locationSelect.options.length; i++) {
+            if (!locationSelect.options[i].disabled) {
+                locationSelect.options[i].selected = true;
+                console.log('Nobena lokacija ni bila izbrana, izbiram prvo razpoložljivo:', locationSelect.options[i].textContent);
+                break;
+            }
+        }
+    }
+}
+
+function formatDuration(minutes) {
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    let displayText = '';
+    
+    if (hours > 0) {
+        displayText = hours + (hours === 1 ? ' ura' : (hours === 2 ? ' uri' : (hours <= 4 ? ' ure' : ' ur')));
+        if (remainingMinutes > 0) {
+            displayText += ' ' + remainingMinutes + ' min';
+        }
+    } else {
+        displayText = minutes + ' min';
+    }
+    
+    return displayText;
 }
