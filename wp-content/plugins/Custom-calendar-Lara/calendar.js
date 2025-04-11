@@ -163,12 +163,22 @@ let currentData = null;
 
 document.addEventListener('DOMContentLoaded', function () {
     let calendarEl = document.getElementById('amelia-calendar');
-    let datePicker, roomFilter, filterContainer;
+    let datePicker, roomFilter, filterContainer, dateDisplay;
 
     if(!calendarEl){
         console.error('Element with ID "amelia-calendar" not found');
         return;
     }
+    
+
+    console.log("Informacije o brskalniku in lokalizaciji:", {
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        languages: navigator.languages,
+        dateTimeFormat: new Intl.DateTimeFormat().format(new Date()),
+        dateTimeLocale: new Intl.DateTimeFormat().resolvedOptions().locale,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    });
 
     // Create filter container once
     filterContainer = document.createElement('div');
@@ -188,13 +198,32 @@ document.addEventListener('DOMContentLoaded', function () {
     datePicker.type = 'date'; // Uporabimo native date picker
     datePicker.style.padding = '5px';
     datePicker.id = 'datePicker';
+    datePicker.setAttribute('lang', 'sl-SI');
+    datePicker.classList.add('date-picker-slovenian')
+    datePicker.setAttribute('data-date-format', 'dd/mm/yyyy');
 
     // Nastavimo privzeti datum
     let savedDate = localStorage.getItem('selectedDate') || new Date().toISOString().split('T')[0];
     datePicker.value = savedDate;
 
-    // Dodelimo handler za spremembo datuma
+    console.log("DatePicker inicializiran:", {
+        element: datePicker,
+        value: datePicker.value,
+        lang: datePicker.getAttribute('lang'),
+        dateFormat: datePicker.getAttribute('data-date-format')
+    });
+
     datePicker.addEventListener('change', function() {
+        const newDate = this.value;
+        const dateParts = newDate.split('-');
+        
+        console.log("DatePicker sprememba:", {
+            newISODate: newDate,
+            parts: dateParts,
+            formattedDate: dateParts.length === 3 ? `${dateParts[2]}.${dateParts[1]}.${dateParts[0]}` : newDate,
+            dateElement: this
+        });
+        
         localStorage.setItem('selectedDate', this.value);
         fetchData(loadCalendar);
     });
@@ -482,9 +511,14 @@ function loadCalendar(data) {
     
     // Pridobimo izbrani datum v ISO formatu (YYYY-MM-DD)
     const isoDate = document.getElementById('datePicker').value;
-    
-    // Možnosti za pretvorbo za prikaz, če bi želeli drugačen format
-    // (Ta del je neobvezen, uporabite ga le če želite drugačen prikaz datuma v UI)
+
+    console.log("LoadCalendar datum:", {
+        isoDate: isoDate,
+        datePickerElement: document.getElementById('datePicker'),
+        browserLocale: navigator.language,
+        dateTimeFormat: new Intl.DateTimeFormat().format(new Date(isoDate))
+    });
+
     const dateParts = isoDate.split('-');
     const displayDate = dateParts.length === 3 
         ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}` // format DD/MM/YYYY
@@ -520,7 +554,11 @@ function loadCalendar(data) {
         );
     }
 
-    let filteredEvents = data.events.filter(event => event.start.startsWith(selectedDate));
+    let filteredEvents = data.events.filter(event => {
+        const eventStartsOnDate = event.start.startsWith(selectedDate);
+
+        return eventStartsOnDate;
+    });
     
     const departmentColors = {
         "AKT": "#4FA5D8", 
@@ -961,8 +999,13 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
                 
                     <div class="form-group" style="margin-bottom: 25px;">
                         <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Trajanje:</label>
+                        <input type="text" readonly value="${formatDuration(Math.round(durationMinutes))}" 
+                            style="width: 100%; padding: 12px; border: 1px solid #ddd; background-color: #f0f0f0; border-radius: 6px; font-size: 16px; box-sizing: border-box;">
+                        <small style="display: block; color: #6c757d; margin-top: 5px;">Spreminjanje trajanja je začasno onemogočeno.</small>
+                        
+                        <!-- Skriti original select, ki je še vedno funkcionalen -->
                         <select id="duration-select" name="duration_minutes" 
-                                style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box; background-color: white;"
+                                style="display: none;" 
                                 onchange="updateTimeSlotsWithFixedStart()">
                             ${generateDurationOptions(durationMinutes)}
                         </select>
@@ -1085,8 +1128,14 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
                 document.querySelector('input[name="patient_name"]').value = originalAppointmentValues.patientName;
                 document.querySelector('input[name="therapy"]').value = originalAppointmentValues.therapy;
                 document.querySelector('input[name="appointment_date"]').value = originalAppointmentValues.date;
-                document.querySelector('select[name="duration_minutes"]').value = originalAppointmentValues.duration;
+                //document.querySelector('select[name="duration_minutes"]').value = originalAppointmentValues.duration;
                 
+                // Preverimo, če obstaja hidden input ali select za trajanje
+                const durationInput = document.querySelector('input[id="duration-select"]');
+                if (durationInput) {
+                    durationInput.value = originalAppointmentValues.duration;
+                }
+
                 // Obnovi časovni termin
                 const timeSlotSelect = document.querySelector('select[name="time_slot"]');
                 timeSlotSelect.innerHTML = `<option value="${originalAppointmentValues.timeSlot}" selected>${originalAppointmentValues.timeSlot.replace(',', ' - ')}</option>`;
@@ -1107,8 +1156,8 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
 
     // Nova funkcija za pridobivanje trenutno izbranega trajanja
     window.getCurrentDuration = function() {
-        const durationSelect = document.getElementById('duration-select');
-        return durationSelect ? parseInt(durationSelect.value) : 30;
+        const durationInput = document.getElementById('duration-select');
+        return durationInput ? parseInt(durationInput.value) : 30;
     };
     
     // Nova funkcija za posodobitev časovnih terminov ob spremembi trajanja (z ohranjanjem začetnega časa)

@@ -1130,33 +1130,39 @@ button:disabled {
     transition: border-color 0.3s;
 }
 
-#datePicker:hover {
-    border-color: #007bff;
-}
-
-#datePicker:focus {
-    outline: none;
-    border-color: #007bff;
-    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
-}
-
-/* Odstranimo povečanje/zmanjšanje gumbe za števila */
-#datePicker::-webkit-inner-spin-button, 
-#datePicker::-webkit-outer-spin-button { 
-    -webkit-appearance: none; 
-    margin: 0; 
-}
-
-/* Prilagoditev indicator ikonice */
 #datePicker::-webkit-calendar-picker-indicator {
     cursor: pointer;
-    color: #666;
-    opacity: 0.7;
 }
 
-#datePicker::-webkit-calendar-picker-indicator:hover {
-    opacity: 1;
+/* Za zagotovitev evropskega formata datuma */
+#datePicker:lang(sl) {
+    -webkit-locale: 'sl-SI';
 }
+
+.date-picker-slovenian {
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    width: 140px;
+    background-color: white;
+}
+
+/* Poskusimo vplivati na format datuma z eksplicitno nastavitvijo formata */
+.date-picker-slovenian::-webkit-datetime-edit {
+    padding: 0;
+}
+
+.date-picker-slovenian::-webkit-inner-spin-button {
+    display: none;
+}
+
+.date-picker-slovenian::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    margin-left: 4px;
+}
+
+
 
 /* Prilagoditve za mobilne naprave */
 @media (max-width: 768px) {
