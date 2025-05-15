@@ -597,6 +597,21 @@ function amelia_update_appointment() {
             }
         }
 
+        if (isset($_POST['duration']) && is_numeric($_POST['duration'])) {
+            $duration = intval($_POST['duration']);
+            $wpdb->update(
+                $wpdb->prefix . 'amelia_customer_bookings',
+                array('duration' => $duration),
+                array('appointmentId' => $appointment_id),
+                array('%d'),
+                array('%d')
+            );
+        
+            if ($wpdb->last_error) {
+                throw new Exception('Napaka pri shranjevanju trajanja: ' . $wpdb->last_error);
+            }
+        }
+
         // Commit transaction
         $wpdb->query('COMMIT');
         

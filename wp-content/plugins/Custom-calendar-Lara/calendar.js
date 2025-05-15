@@ -808,7 +808,7 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
     const editButtonHtml = canEdit ? 
         `<button type="button" class="edit-btn" 
             style="padding: 12px 24px; border: none; border-radius: 6px; background-color: #007bff; color: white; font-size: 16px; cursor: pointer; transition: background-color 0.3s;"
-            onclick="toggleEditMode(true)">
+            onclick="toggleEditMode(true, window.currentAppointment)">
             Uredi
         </button>` : 
         `<button type="button" class="edit-btn-disabled" 
@@ -832,7 +832,7 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
     // Ustvari modal s pogledom podrobnosti (privzeto)
     const modalHtml = `
         <div class="appointment-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000;">
-            <div class="modal-content" style="background: white; padding: 30px; border-radius: 8px; min-width: 500px; width: 60%; max-width: 700px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);">
+            <div class="modal-content" style="background: white; padding: 30px; border-radius: 8px; min-width: 400px; width: 90%; max-width: 600px; max-height: 95vh; overflow-y: auto; box-shadow: 0 5px 15px rgba(0,0,0,0.2);">
                 <!-- Pogled za podrobnosti -->
                 <div id="details-view">
                     <div style="border-left: 4px solid ${deptColor}; padding-left: 15px; margin-bottom: 20px;">
@@ -853,6 +853,9 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
                         
                         <dt style="font-weight: bold; margin-bottom: 8px;">Čas:</dt>
                         <dd style="margin: 0 0 15px 0;">${formattedStartTime} - ${formattedEndTime}</dd>
+
+                        <dt style="font-weight: bold; margin-bottom: 8px;">Trajanje:</dt>
+                        <dd style="margin: 0 0 15px 0;">${formatDuration(Math.round(durationMinutes))}</dd>
                         
                         <dt style="font-weight: bold; margin-bottom: 8px;">Lokacija:</dt>
                         <dd style="margin: 0 0 15px 0;">${appointment.resourceName || ''}</dd>
@@ -875,7 +878,7 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
                 </div>
                 
                 <!-- Pogled za urejanje (skrit na začetku) -->
-                <div id="edit-view" style="display: none;">
+                <div id="edit-view" style="display: none; position: relative; z-index: 10">
                     <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #f0f0f0; padding-bottom: 15px;">Uredi termin</h2>
                     <form id="appointment-form" style="margin-top: 20px;">
                         <div class="form-group" style="margin-bottom: 25px;">
@@ -905,6 +908,13 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
                                 <option value="${formattedStartTime},${formattedEndTime}" selected>${formattedStartTime} - ${formattedEndTime}</option>
                             </select>
                         </div>
+
+                        <div class="form-group" style="margin-bottom: 25px;">
+                            <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Trajanje:</label>
+                            <select id="duration-select" name="duration" 
+                                    style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; box-sizing: border-box; background-color: white;">
+                            </select>
+                        </div> 
                     
                         <div class="form-group" style="margin-bottom: 25px;">
                             <label style="display: block; margin-bottom: 8px; font-weight: bold; font-size: 16px;">Lokacija:</label>
@@ -951,7 +961,7 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
     };
     
     // Funkcija za preklop med pogledi, ki upošteva pravice
-    window.toggleEditMode = function(showEditMode) {
+    window.toggleEditMode = function(showEditMode, appointment) {
         if (showEditMode && !canEdit) {
             showPermissionAlert();
             return;
@@ -963,6 +973,49 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
         if (showEditMode) {
             detailsView.style.display = 'none';
             editView.style.display = 'block';
+            editView.style.zIndex = '10';
+
+            const durationSelect = document.getElementById('duration-select');
+            if (durationSelect) {
+                durationSelect.innerHTML = '';
+                const start = new Date(appointment.start);
+                const end = new Date(appointment.end);
+                const durationMinutes = (end - start) / (1000 * 60); // Trajanje v minutah
+                for (let i = 30; i <= 570; i += 30) {
+                    const option = document.createElement('option');
+                    option.value = i;
+                    let hours = Math.floor(i / 60);
+                    let minutes = i % 60;
+                    let text = '';
+
+                    if (hours > 0) {
+                        if (hours === 1) text += '1 ura';
+                        else if (hours === 2) text += '2 uri';
+                        else if (hours === 3) text += '3 ure';
+                        else if (hours === 4) text += '4 ure';
+                        else text += `${hours} ur`;
+                    }
+
+                    if (minutes > 0) {
+                        if (text !== '') text += ' ';
+                        text += `${minutes} min`;
+                    }
+
+                    option.textContent = text || `${i} min`;
+                    if (i === durationMinutes) {
+                        option.selected = true;
+                    }
+                    durationSelect.appendChild(option);
+                }
+
+                // Ob spremembi dolžine ponovno naloži proste termine
+                durationSelect.addEventListener('change', () => {
+                    const newDuration = parseInt(durationSelect.value, 10);
+                    const date = document.querySelector('input[name="appointment_date"]').value;
+                    const locationId = document.querySelector('#location-select')?.value || '';
+                    updateAvailableTimeSlots(date, locationId, appointment.id, newDuration);
+                });
+            }
             
             // Load available time slots and locations
             setTimeout(() => {
@@ -979,6 +1032,7 @@ function createAppointmentModal(appointment, patientName, therapy, formattedDate
     document.querySelector('.close-button').addEventListener('click', function() {
         document.querySelector('.appointment-modal').remove();
     });
+    window.currentAppointment = appointment; // Shranimo trenutni termin za dostop v funkcijah
 }
 
 function updateAvailableTimeSlots(date, locationId, appointmentId, durationMinutes) {
@@ -1194,6 +1248,10 @@ function handleUpdateAppointment(form) {
     const date = form.querySelector('input[name="appointment_date"]').value;
     const timeSlot = form.querySelector('select[name="time_slot"]').value;
     const locationId = form.querySelector('select[name="location"]').value;
+
+    const durationSelect = document.getElementById('duration-select');
+    const durationMinutes = durationSelect ? parseInt(durationSelect.value, 10) : null;
+    const durationSeconds = durationMinutes ? durationMinutes * 60 : null;
     
     // Pridobi vrednosti za pacienta in terapijo
     const patientName = form.querySelector('input[name="patient_name"]').value.trim();
@@ -1227,7 +1285,8 @@ function handleUpdateAppointment(form) {
             location: locationId,
             appointment_date: date,
             start_time: startTime,
-            end_time: endTime
+            end_time: endTime,
+            duration: durationSeconds
         },        
         beforeSend: function() {
             // Onemogoči gumbe med pošiljanjem zahtevka
@@ -1396,4 +1455,21 @@ function populateLocationSelect(availableLocations, currentLocationId) {
                 });
             });
         });
+}
+
+function formatDuration(minutes){
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    let displayText = '';
+    
+    if (hours > 0) {
+        displayText = hours + (hours === 1 ? ' ura' : (hours === 2 ? ' uri' : (hours <= 4 ? ' ure' : ' ur')));
+        if(mins > 0) {
+            displayText += ' ' + mins + ' min';
+        }
+    } else{
+        displayText = minutes + ' min';
+    }
+    
+    return displayText;
 }
