@@ -14,9 +14,11 @@ if (!defined('ABSPATH')) {
 function amelia_get_appointments_json() {
     global $wpdb;
     $wpdb->show_errors();
+    $selected_date = isset($_POST['selectedDate']) ? sanitize_text_field($_POST['selectedDate']) : null;
+
 
     try {
-        // First, get all available rooms and beds
+        // Get all available rooms and beds
         $rooms_query = "
             SELECT DISTINCT
                 e.firstName AS department_name,
@@ -40,6 +42,11 @@ function amelia_get_appointments_json() {
 
         $rooms = $wpdb->get_results($rooms_query);
 
+        $where_clause = "";
+        if($selected_date){
+            $where_clause = $wpdb->prepare(" WHERE DATE(a.bookingStart) = %s", $selected_date);
+        }
+
         // Get all appointments with their original times
         $appointments_query = "
             SELECT 
@@ -56,7 +63,8 @@ function amelia_get_appointments_json() {
             LEFT JOIN wp_amelia_categories c ON s.categoryId = c.id
             LEFT JOIN wp_amelia_providers_to_services ps ON s.id = ps.serviceId
             LEFT JOIN wp_amelia_users e ON ps.userId = e.id
-            LEFT JOIN wp_amelia_customer_bookings cb ON a.id = cb.appointmentId";
+            LEFT JOIN wp_amelia_customer_bookings cb ON a.id = cb.appointmentId
+        " . $where_clause;
 
         $appointments_raw = $wpdb->get_results($appointments_query);
 
@@ -65,28 +73,22 @@ function amelia_get_appointments_json() {
             return;
         }
 
-        // Set the timezone for Slovenia (or your specific timezone)
         $timezone = new DateTimeZone('Europe/Ljubljana');
         
-        // Process appointments with proper DST awareness
         $appointments = [];
         foreach ($appointments_raw as $appointment) {
-            // Create DateTime objects in UTC (assuming Amelia stores times in UTC)
             $start_date_utc = new DateTime($appointment->original_start, new DateTimeZone('UTC'));
             $end_date_utc = new DateTime($appointment->original_end, new DateTimeZone('UTC'));
             
-            // Convert to local timezone (will handle DST automatically)
             $start_date_utc->setTimezone($timezone);
             $end_date_utc->setTimezone($timezone);
             
-            // Format dates for display
             $appointment->start_time = $start_date_utc->format('Y-m-d H:i:s');
             $appointment->end_time = $end_date_utc->format('Y-m-d H:i:s');
             
             $appointments[] = $appointment;
         }
 
-        // Prepare resources array with all rooms
         $resources = [];
         foreach ($rooms as $room) {
             if (!empty($room->department_name) && !empty($room->room_name)) {
@@ -101,7 +103,6 @@ function amelia_get_appointments_json() {
             }
         }
 
-        // Prepare events array
         $events = [];
         foreach ($appointments as $appointment) {
             if (!empty($appointment->department_name) && !empty($appointment->room_name)) {
@@ -131,20 +132,18 @@ function amelia_get_appointments_json() {
 add_action('wp_ajax_amelia_get_appointments', 'amelia_get_appointments_json');
 add_action('wp_ajax_nopriv_amelia_get_appointments', 'amelia_get_appointments_json');
 
-// Delete appointment
 function amelia_delete_appointment() {
     if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
         wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
         return;
     }
     
-    // Check if user has permission (only administrators and editors can delete)
+    // Check if user has permission
     if (!current_user_can('edit_posts')) {
         wp_send_json_error(array('message' => 'Nimate dovoljenja za brisanje terminov.'));
         return;
     }
     
-    // Get the appointment ID
     $appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
     
     if (empty($appointment_id)) {
@@ -155,7 +154,6 @@ function amelia_delete_appointment() {
     global $wpdb;
     $wpdb->show_errors();
     
-    // Start transaction
     $wpdb->query('START TRANSACTION');
     
     try {
@@ -185,7 +183,6 @@ function amelia_delete_appointment() {
             throw new Exception('Termin ni bilo mogoče najti ali pa je že bil izbrisan.');
         }
         
-        // Commit the transaction
         $wpdb->query('COMMIT');
         
         wp_send_json_success(array(
@@ -194,7 +191,6 @@ function amelia_delete_appointment() {
         ));
         
     } catch (Exception $e) {
-        // Rollback the transaction in case of error
         $wpdb->query('ROLLBACK');
         
         wp_send_json_error(array(
@@ -267,7 +263,6 @@ function amelia_calendar_shortcode() {
     <?php return ob_get_clean();
 }
 
-// Dodajte to novo funkcijo za preverjanje razpoložljivosti
 function check_appointment_availability($serviceId, $providerId, $start_time, $end_time, $exclude_appointment_id = null) {
     global $wpdb;
     
@@ -291,7 +286,6 @@ function check_appointment_availability($serviceId, $providerId, $start_time, $e
         $providerId
     );
 
-    // Če preverjamo za obstoječ termin, izključimo tega iz preverjanja
     if ($exclude_appointment_id) {
         $query .= $wpdb->prepare(" AND id != %d", $exclude_appointment_id);
     }
@@ -300,7 +294,6 @@ function check_appointment_availability($serviceId, $providerId, $start_time, $e
     return $result == 0;
 }
 
-// Nova funkcija za pridobivanje razpoložljivih terminov
 function amelia_get_available_slots() {
     if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
         wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
@@ -319,7 +312,6 @@ function amelia_get_available_slots() {
             return;
         }
 
-        // Razdeli lokacijo na dele
         $location_parts = explode(' - ', $location);
         if (count($location_parts) !== 3) {
             wp_send_json_error(array('message' => 'Neveljaven format lokacije.'));
@@ -330,7 +322,6 @@ function amelia_get_available_slots() {
         $room_name = trim($location_parts[1]);
         $bed_name = trim($location_parts[2]);
 
-        // Pridobi serviceId in providerId
         $location_query = $wpdb->prepare(
             "SELECT 
                 s.id AS serviceId,
@@ -355,7 +346,6 @@ function amelia_get_available_slots() {
             return;
         }
 
-        // Pridobi vse termine za ta dan
         $timezone = new DateTimeZone('Europe/Ljubljana');
         $utc_timezone = new DateTimeZone('UTC');
         
@@ -381,7 +371,7 @@ function amelia_get_available_slots() {
             $current_appointment_id
         ));
 
-        // Generiraj razpoložljive termine (30-minutni intervali med 7:00 in 20:00)
+        // Generate available slots with 30-minute intervals
         $available_slots = array();
         $current_time = new DateTime($date . ' 07:00:00', $timezone);
         $end_time = new DateTime($date . ' 20:00:00', $timezone);
@@ -436,7 +426,6 @@ add_action('wp_ajax_amelia_get_available_slots', 'amelia_get_available_slots');
 function amelia_update_appointment() {
     error_log('Update appointment function triggered');
     
-    // Check nonce
     if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
         wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
         return;
@@ -452,14 +441,12 @@ function amelia_update_appointment() {
     $wpdb->show_errors();
     
     try {
-        // Get and validate input data
         $appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
-        $patient_info = isset($_POST['patient_info']) ? $_POST['patient_info'] : null; // Ne uporabimo sanitize_text_field
+        $patient_info = isset($_POST['patient_info']) ? $_POST['patient_info'] : null;
         $location = isset($_POST['location']) ? sanitize_text_field($_POST['location']) : '';
         $appointment_date = isset($_POST['appointment_date']) ? sanitize_text_field($_POST['appointment_date']) : '';
         $start_time = isset($_POST['start_time']) ? sanitize_text_field($_POST['start_time']) : '';
         $end_time = isset($_POST['end_time']) ? sanitize_text_field($_POST['end_time']) : '';
-        $duration_minutes = isset($_POST['duration_minutes']) ? intval($_POST['duration_minutes']) : 30;
         
         error_log('Prejeti podatki: ' . json_encode([
             'appointment_id' => $appointment_id,
@@ -467,24 +454,15 @@ function amelia_update_appointment() {
             'location' => $location,
             'appointment_date' => $appointment_date,
             'start_time' => $start_time,
-            'end_time' => $end_time,
-            'duration_minutes' => $duration_minutes
+            'end_time' => $end_time
         ]));
         
-        // Validate required fields
         if (empty($appointment_id) || empty($location) || 
             empty($appointment_date) || empty($start_time) || empty($end_time)) {
             wp_send_json_error(array('message' => 'Vsa polja so obvezna.'));
             return;
         }
-        
-        // Preveri veljavnost trajanja (med 30 minut in 9,5 ur)
-        if ($duration_minutes < 30 || $duration_minutes > 570) {
-            wp_send_json_error(array('message' => 'Neveljavno trajanje termina. Dovoljen razpon je med 30 minut in 9,5 ur.'));
-            return;
-        }
     
-        // Parse location to get department, room, and bed
         $location_parts = explode(' - ', $location);
         if (count($location_parts) !== 3) {
             wp_send_json_error(array('message' => 'Neveljaven format lokacije.'));
@@ -495,7 +473,6 @@ function amelia_update_appointment() {
         $room_name = trim($location_parts[1]);
         $bed_name = trim($location_parts[2]);
 
-        // Get new serviceId and providerId
         $location_query = $wpdb->prepare(
             "SELECT 
                 s.id AS serviceId,
@@ -520,7 +497,6 @@ function amelia_update_appointment() {
             return;
         }
         
-        // Convert times to UTC
         $timezone = new DateTimeZone('Europe/Ljubljana');
         $utc_timezone = new DateTimeZone('UTC');
         
@@ -533,7 +509,6 @@ function amelia_update_appointment() {
         $booking_start = $start_datetime->format('Y-m-d H:i:s');
         $booking_end = $end_datetime->format('Y-m-d H:i:s');
         
-        // Dodajte preverjanje razpoložljivosti pred posodobitvijo
         if (!check_appointment_availability(
             $new_location->serviceId,
             $new_location->providerId,
@@ -545,10 +520,8 @@ function amelia_update_appointment() {
             return;
         }
 
-        // Start transaction
         $wpdb->query('START TRANSACTION');
         
-        // Update appointment
         $updated = $wpdb->update(
             'wp_amelia_appointments',
             array(
@@ -566,20 +539,15 @@ function amelia_update_appointment() {
             throw new Exception($wpdb->last_error);
         }
         
-        // Samo če so bili podatki o pacientu eksplicitno posodobljeni
         if ($patient_info !== null) {
-            // Če gre za asociativni array, ga spremenimo v JSON
             if (is_array($patient_info)) {
                 $info_json = json_encode($patient_info);
-            } 
-            // Če gre za JSON niz, ga uporabimo direktno
-            else if (is_string($patient_info)) {
-                // Preveri, če je veljavni JSON
+            } else if (is_string($patient_info)) {
+
                 $decoded = json_decode($patient_info, true);
                 if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                    $info_json = $patient_info; // Že je v JSON formatu
+                    $info_json = $patient_info;
                 } else {
-                    // Ni valid JSON, zato ustvarimo novega
                     $info_array = array(
                         'firstName' => $patient_info,
                         'lastName' => '',
@@ -591,7 +559,6 @@ function amelia_update_appointment() {
                 throw new Exception('Neveljavni podatki o pacientu');
             }
             
-            // Shranjujemo neposredno poslani JSON (brez dodatnega kodiranja)
             $updated_booking = $wpdb->update(
                 'wp_amelia_customer_bookings',
                 array('info' => $info_json),
@@ -620,7 +587,6 @@ function amelia_update_appointment() {
             }
         }
 
-        // Commit transaction
         $wpdb->query('COMMIT');
         
         wp_send_json_success(array(
@@ -638,9 +604,7 @@ function amelia_update_appointment() {
 }
 add_action('wp_ajax_amelia_update_appointment', 'amelia_update_appointment');
 
-// Test connection function
 function amelia_test_connection() {
-    // Log the request
     error_log('Amelia test connection triggered');
     
     wp_send_json_success(array('message' => 'Connection successful'));
@@ -676,7 +640,6 @@ function amelia_get_available_locations() {
             return;
         }
 
-        // Pridobi vse lokacije
         $locations_query = "
             SELECT DISTINCT
                 e.firstName AS department_name,
@@ -701,8 +664,6 @@ function amelia_get_available_locations() {
                 s.name";
 
         $locations = $wpdb->get_results($locations_query);
-
-        // Pretvori čase v UTC
         $timezone = new DateTimeZone('Europe/Ljubljana');
         $utc_timezone = new DateTimeZone('UTC');
         
@@ -715,12 +676,10 @@ function amelia_get_available_locations() {
         $booking_start = $start_datetime->format('Y-m-d H:i:s');
         $booking_end = $end_datetime->format('Y-m-d H:i:s');
 
-        // Pripravi vse lokacije z označeno razpoložljivostjo
         $all_locations = array();
         foreach ($locations as $location) {
             $location_id = "{$location->department_name} - {$location->room_name} - {$location->service_name}";
             
-            // Preveri razpoložljivost za vsako lokacijo
             $is_available = check_appointment_availability(
                 $location->serviceId,
                 $location->providerId,
@@ -753,7 +712,6 @@ function amelia_get_available_locations() {
 
 add_action('wp_ajax_amelia_get_available_locations', 'amelia_get_available_locations');
 
-// Nova funkcija za pridobivanje razpoložljivih terminov glede na lokacijo in datum
 function amelia_get_available_time_slots() {
     if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
         wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
@@ -767,14 +725,12 @@ function amelia_get_available_time_slots() {
         $location = isset($_POST['location']) ? sanitize_text_field($_POST['location']) : '';
         $duration_minutes = isset($_POST['duration_minutes']) ? intval($_POST['duration_minutes']) : 30;
         $current_appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
-        $current_start = isset($_POST['current_start']) ? sanitize_text_field($_POST['current_start']) : '';
 
         error_log('get_available_time_slots prejeti podatki: ' . json_encode([
             'date' => $date,
             'location' => $location,
             'duration_minutes' => $duration_minutes,
-            'appointment_id' => $current_appointment_id,
-            'current_start' => $current_start
+            'appointment_id' => $current_appointment_id
         ]));
 
         if (empty($date) || empty($location)) {
@@ -782,13 +738,6 @@ function amelia_get_available_time_slots() {
             return;
         }
 
-        // Preveri veljavnost trajanja (med 30 minut in 9,5 ur)
-        if ($duration_minutes < 30 || $duration_minutes > 570) {
-            wp_send_json_error(array('message' => 'Neveljavno trajanje termina. Dovoljen razpon je med 30 minut in 9,5 ur.'));
-            return;
-        }
-
-        // Razdeli lokacijo na dele
         $location_parts = explode(' - ', $location);
         if (count($location_parts) !== 3) {
             wp_send_json_error(array('message' => 'Neveljaven format lokacije.'));
@@ -799,7 +748,6 @@ function amelia_get_available_time_slots() {
         $room_name = trim($location_parts[1]);
         $bed_name = trim($location_parts[2]);
 
-        // Pridobi serviceId in providerId
         $location_query = $wpdb->prepare(
             "SELECT 
                 s.id AS serviceId,
@@ -824,7 +772,6 @@ function amelia_get_available_time_slots() {
             return;
         }
 
-        // Pridobi vse termine za ta dan na tej lokaciji
         $timezone = new DateTimeZone('Europe/Ljubljana');
         $utc_timezone = new DateTimeZone('UTC');
         
@@ -834,7 +781,6 @@ function amelia_get_available_time_slots() {
         $start_of_day->setTimezone($utc_timezone);
         $end_of_day->setTimezone($utc_timezone);
 
-        // Pridobi vse obstoječe termine za to lokacijo na ta dan
         $appointments = $wpdb->get_results($wpdb->prepare(
             "SELECT bookingStart, bookingEnd
             FROM wp_amelia_appointments
@@ -851,96 +797,32 @@ function amelia_get_available_time_slots() {
             $current_appointment_id
         ));
 
-        // Če imamo izbrani začetni čas (iz obstoječega termina), poskušamo ohraniti ta začetni čas
-        $prioritize_current_start = !empty($current_start);
-        
-        // Generiraj razpoložljive termine (30-minutni intervali med 7:30 in 20:00)
         $available_slots = array();
         $current_time = new DateTime($date . ' 07:30:00', $timezone);
         $end_time = new DateTime($date . ' 20:00:00', $timezone);
 
-        // Maksimalen čas konca termina (ne more se končati po delovnem času)
-        $max_end_time = clone $end_time;
-
-        // Spremeni obstoječe termine v lokalni čas za enostavnejšo primerjavo
-        $occupied_periods = array();
-        foreach ($appointments as $appointment) {
-            $appt_start = new DateTime($appointment->bookingStart, $utc_timezone);
-            $appt_end = new DateTime($appointment->bookingEnd, $utc_timezone);
-            
-            $appt_start->setTimezone($timezone);
-            $appt_end->setTimezone($timezone);
-            
-            $occupied_periods[] = array(
-                'start' => $appt_start->format('H:i'),
-                'end' => $appt_end->format('H:i')
-            );
-        }
-
-        // Če imamo izbran začetni čas, najprej preverimo, ali lahko dodamo ta čas
-        if ($prioritize_current_start) {
-            $requested_start = $current_start;
-            $requested_start_obj = new DateTime("$date $requested_start", $timezone);
-            $requested_end_obj = clone $requested_start_obj;
-            $requested_end_obj->modify('+'.$duration_minutes.' minutes');
-            
-            // Preveri, ali je ta čas še v okviru delovnega časa
-            if ($requested_end_obj <= $max_end_time) {
-                $requested_end = $requested_end_obj->format('H:i');
-                
-                // Preveri, da se ne prekriva z drugim terminom
-                $is_available = true;
-                foreach ($occupied_periods as $period) {
-                    $period_start = $period['start'];
-                    $period_end = $period['end'];
-                    
-                    // Če se prekriva, ni na voljo
-                    if (
-                        ($requested_start < $period_end && $requested_end > $period_start)
-                    ) {
-                        $is_available = false;
-                        break;
-                    }
-                }
-                
-                if ($is_available) {
-                    // Dodaj ta termin kot prvi v seznamu
-                    $available_slots[] = array(
-                        'start' => $requested_start,
-                        'end' => $requested_end
-                    );
-                }
-            }
-        }
-
-        // Generiraj ostale razpoložljive termine (če ne ohranimo obstoječega začetnega časa ali ga ni)
         while ($current_time < $end_time) {
             $slot_start = clone $current_time;
             $slot_end = clone $current_time;
             $slot_end->modify('+' . $duration_minutes . ' minutes');
 
-            // Če slot konča po koncu delovnega časa, ga preskoči
-            if ($slot_end > $max_end_time) {
+            if ($slot_end > $end_time) {
                 break;
             }
 
-            $slot_start_str = $slot_start->format('H:i');
-            $slot_end_str = $slot_end->format('H:i');
-            
-            // Preskoči, če je to isti začetni čas, kot smo ga že dodali
-            if ($prioritize_current_start && $slot_start_str === $current_start) {
-                $current_time->modify('+30 minutes');
-                continue;
-            }
+            $slot_start_utc = clone $slot_start;
+            $slot_end_utc = clone $slot_end;
+            $slot_start_utc->setTimezone($utc_timezone);
+            $slot_end_utc->setTimezone($utc_timezone);
 
-            // Preveri, ali se ta termin prekriva z obstoječimi termini
             $is_available = true;
-            foreach ($occupied_periods as $period) {
-                $period_start = $period['start'];
-                $period_end = $period['end'];
+            foreach ($appointments as $appointment) {
+                $appt_start = new DateTime($appointment->bookingStart);
+                $appt_end = new DateTime($appointment->bookingEnd);
                 
                 if (
-                    ($slot_start_str < $period_end && $slot_end_str > $period_start)
+                    ($slot_start_utc < $appt_end) && 
+                    ($slot_end_utc > $appt_start)
                 ) {
                     $is_available = false;
                     break;
@@ -949,12 +831,11 @@ function amelia_get_available_time_slots() {
 
             if ($is_available) {
                 $available_slots[] = array(
-                    'start' => $slot_start_str,
-                    'end' => $slot_end_str
+                    'start' => $slot_start->format('H:i'),
+                    'end' => $slot_end->format('H:i')
                 );
             }
 
-            // Premakni se naprej za 30 minut
             $current_time->modify('+30 minutes');
         }
 
@@ -972,7 +853,6 @@ function amelia_get_available_time_slots() {
 
 add_action('wp_ajax_amelia_get_available_time_slots', 'amelia_get_available_time_slots');
 
-// Dodajte to funkcijo v amelia-koledar.php
 function amelia_get_appointment_details() {
     if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
         wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
@@ -989,7 +869,6 @@ function amelia_get_appointment_details() {
             return;
         }
         
-        // Pridobi podatke o pacientu iz baze
         $info_query = $wpdb->prepare(
             "SELECT info FROM wp_amelia_customer_bookings WHERE appointmentId = %d LIMIT 1",
             $appointment_id
@@ -1024,298 +903,767 @@ function amelia_check_permissions() {
 add_action('wp_ajax_amelia_check_permissions', 'amelia_check_permissions');
 add_action('wp_ajax_nopriv_amelia_check_permissions', 'amelia_check_permissions');
 
-// Funkcija za preverjanje konfliktov terminov
-function amelia_check_time_conflicts() {
-    if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
-        wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
-        return;
+// Shortcode for daily schedule - za pripravo zdravil v lekarni
+function dnevni_razpored() {
+    if (!is_user_logged_in()) {
+        return '...';
     }
 
-    global $wpdb;
+    ob_start(); ?>
     
-    try {
-        $date = isset($_POST['date']) ? sanitize_text_field($_POST['date']) : '';
-        $location = isset($_POST['location']) ? sanitize_text_field($_POST['location']) : '';
-        $start_time = isset($_POST['start_time']) ? sanitize_text_field($_POST['start_time']) : '';
-        $end_time = isset($_POST['end_time']) ? sanitize_text_field($_POST['end_time']) : '';
-        $appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
+    <!-- Trigger button -->
+    <button id="ameliaShowAppointmentsBtn" style="float: right; margin-left: 10px; padding-bottom: 8px; padding-top: 8px; background: #63a0f1ff;">
+        Dnevni razpored
+    </button>
 
-        if (empty($date) || empty($location) || empty($start_time) || empty($end_time)) {
-            wp_send_json_error(array('message' => 'Manjkajo potrebni podatki.'));
-            return;
+    <!-- Modal overlay -->
+    <div id="modalOverlay" style="
+        display: none;
+        position: fixed;
+        inset: 0;                 /* top:0; right:0; bottom:0; left:0 */
+        background: rgba(0,0,0,0.5);
+        z-index: 9998;
+    "></div>
+
+    <!-- Modal container -->
+    <div id="ameliaAppointmentsModal" style="
+        display: none;
+        position: fixed;
+        top: 10%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: white;
+        padding: 10px;
+        border: 1px solid #ccc;
+        z-index: 9999;            /* nad overlayem */
+        max-height: 90vh;
+        width: 90%;
+        max-width: 1000px;
+        box-sizing: border-box;
+        border-radius: 8px;
+        font-family: Arial, sans-serif;
+        color: #222;
+        overflow: hidden;         /* zadrži sticky header in vsebino */
+    ">
+
+        <!-- Header showing selected date -->
+        <div id="ameliaModalHeader" style="
+            position: sticky;
+            top: 0;
+            background: white;
+            padding-bottom: 20px;
+            margin-bottom: 10px;
+            margin-top: 10px;
+            font-weight: bold;
+            font-size: 18px;
+            border-bottom: 1px solid #ccc;
+            z-index: 1;
+        ">
+            Izbran datum: <span id="selectedDateText">...</span>
+
+            <!-- Print Button -->
+            <button id="ameliaPrintBtn" aria-label="Print" style="
+                position: fixed;
+                right: 55px;
+                background: #4968ffff;
+                border: none;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                width: 69px;
+                height: 32px;
+                border-radius: 4px;
+                cursor: pointer;
+                z-index: 10000;
+                line-height: 32px;
+                text-align: center;
+                padding: 0;
+            ">Natisni</button>
+
+            <!-- Close Button -->
+            <button id="ameliaCloseModalBtn" aria-label="Zapri" style="
+                position: fixed;
+                right: 15px;
+                background: #6b6b6bff;
+                border: none;
+                color: white;
+                font-weight: bold;
+                font-size: 22px;
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                cursor: pointer;
+                z-index: 10000;
+                line-height: 32px;
+                text-align: center;
+                padding: 0;
+            ">&times;</button>
+        </div>
+
+        <!-- Appointments content container -->
+        <div id="ameliaAppointmentsContent" style="
+            max-height: calc(80vh - 70px);
+            overflow-y: auto;
+            padding: 8px;
+        ">
+            Nalagam termine...
+        </div>
+    </div>
+
+    <!-- Table styles -->
+    <style>
+        .amelia-appointments-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            table-layout: fixed;
+        }
+        .amelia-appointments-table th,
+        .amelia-appointments-table td {
+            border: 1px solid #ccc;
+            padding: 6px 10px;
+            text-align: left;
+            vertical-align: middle;
+            font-size: 14px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+        .amelia-appointments-table th {
+            background-color: #f0f0f0;
+            font-weight: 600;
+        }
+        .amelia-appointments-table th:nth-child(1),
+        .amelia-appointments-table td:nth-child(1) {
+            width: 6%; /* Čas */
+        }
+        .amelia-appointments-table th:nth-child(2),
+        .amelia-appointments-table td:nth-child(2) {
+            width: 35%; /* Pacient */
+        }
+        .amelia-appointments-table th:nth-child(3),
+        .amelia-appointments-table td:nth-child(3) {
+            width: 37%; /* Terapija */
+        }
+        .amelia-appointments-table th:nth-child(4),
+        .amelia-appointments-table td:nth-child(4) {
+            width: 12%; /* Soba */
+        }
+        .amelia-appointments-table th:nth-child(5),
+        .amelia-appointments-table td:nth-child(5) {
+            width: 10%; /* Postelja */
         }
 
-        // Razdeli lokacijo na dele
-        $location_parts = explode(' - ', $location);
-        if (count($location_parts) !== 3) {
-            wp_send_json_error(array('message' => 'Neveljaven format lokacije.'));
-            return;
+        body.no-scroll { overflow: hidden; }
+    </style>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const modal = document.getElementById('ameliaAppointmentsModal');
+        const overlay = document.getElementById('modalOverlay');
+        const output = document.getElementById('ameliaAppointmentsContent');
+        const showBtn = document.getElementById('ameliaShowAppointmentsBtn');
+        const closeBtn = document.getElementById('ameliaCloseModalBtn');
+        const selectedDateText = document.getElementById('selectedDateText');
+        const printBtn = document.getElementById('ameliaPrintBtn');
+
+        let appointmentCache     = null;
+        let appointmentCacheDate = null;
+
+        function openModal() {
+            overlay.style.display = 'block';
+            modal.style.display = 'block';
+            document.body.classList.add('no-scroll');
         }
 
-        $department_name = trim($location_parts[0]);
-        $room_name = trim($location_parts[1]);
-        $bed_name = trim($location_parts[2]);
-
-        // Pridobi serviceId in providerId
-        $location_query = $wpdb->prepare(
-            "SELECT 
-                s.id AS serviceId,
-                e.id AS providerId
-            FROM wp_amelia_services s
-            LEFT JOIN wp_amelia_categories c ON s.categoryId = c.id
-            LEFT JOIN wp_amelia_providers_to_services ps ON s.id = ps.serviceId
-            LEFT JOIN wp_amelia_users e ON ps.userId = e.id
-            WHERE e.firstName = %s 
-            AND c.name = %s
-            AND s.name = %s
-            LIMIT 1",
-            $department_name,
-            $room_name,
-            $bed_name
-        );
-
-        $location_info = $wpdb->get_row($location_query);
-        
-        if (!$location_info) {
-            wp_send_json_error(array('message' => 'Lokacija ni bila najdena.'));
-            return;
+        function closeModal() {
+            modal.style.display = 'none';
+            overlay.style.display = 'none';
+            document.body.classList.remove('no-scroll');
         }
 
-        // Pretvori čase v UTC
-        $timezone = new DateTimeZone('Europe/Ljubljana');
-        $utc_timezone = new DateTimeZone('UTC');
-        
-        $start_datetime = new DateTime("$date $start_time", $timezone);
-        $end_datetime = new DateTime("$date $end_time", $timezone);
-        
-        $start_datetime->setTimezone($utc_timezone);
-        $end_datetime->setTimezone($utc_timezone);
-        
-        $booking_start = $start_datetime->format('Y-m-d H:i:s');
-        $booking_end = $end_datetime->format('Y-m-d H:i:s');
+        // zapri s klikom na overlay
+        overlay.addEventListener('click', closeModal);
 
-        // Preveri, ali obstaja prekrivanje med termini
-        $conflicts = $wpdb->get_results($wpdb->prepare(
-            "SELECT a.id, a.bookingStart, a.bookingEnd,
-                JSON_UNQUOTE(JSON_EXTRACT(cb.info, '$.firstName')) AS patient_first_name,
-                JSON_UNQUOTE(JSON_EXTRACT(cb.info, '$.lastName')) AS patient_last_name
-            FROM wp_amelia_appointments a
-            LEFT JOIN wp_amelia_customer_bookings cb ON a.id = cb.appointmentId
-            WHERE a.id != %d 
-            AND a.serviceId = %d
-            AND a.providerId = %d
-            AND (
-                (a.bookingStart < %s AND a.bookingEnd > %s) OR
-                (a.bookingStart >= %s AND a.bookingStart < %s) OR
-                (a.bookingEnd > %s AND a.bookingEnd <= %s)
-            )",
-            $appointment_id,
-            $location_info->serviceId,
-            $location_info->providerId,
-            $booking_end,
-            $booking_start,
-            $booking_start,
-            $booking_end,
-            $booking_start,
-            $booking_end
-        ));
-
-        $has_conflict = !empty($conflicts);
-        
-        // Pretvori konfliktne termine v lokalni čas za lepši prikaz
-        $conflict_info = array();
-        if ($has_conflict) {
-            foreach ($conflicts as $conflict) {
-                $conflict_start = new DateTime($conflict->bookingStart, $utc_timezone);
-                $conflict_end = new DateTime($conflict->bookingEnd, $utc_timezone);
-                
-                $conflict_start->setTimezone($timezone);
-                $conflict_end->setTimezone($timezone);
-                
-                $conflict_info[] = array(
-                    'id' => $conflict->id,
-                    'patient' => trim($conflict->patient_first_name . ' ' . $conflict->patient_last_name),
-                    'start' => $conflict_start->format('H:i'),
-                    'end' => $conflict_end->format('H:i')
-                );
+        // zapri z ESC
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape' && modal.style.display === 'block') {
+                closeModal();
             }
-        }
+        });
 
-        wp_send_json_success(array(
-            'has_conflict' => $has_conflict,
-            'conflicts' => $conflict_info
-        ));
-
-    } catch (Exception $e) {
-        error_log('Error in amelia_check_time_conflicts: ' . $e->getMessage());
-        wp_send_json_error(array(
-            'message' => 'Napaka pri preverjanju konfliktov: ' . $e->getMessage()
-        ));
-    }
-}
-
-add_action('wp_ajax_amelia_check_time_conflicts', 'amelia_check_time_conflicts');
-
-// Funkcija za pridobivanje razpoložljivih začetnih časov
-function amelia_get_available_start_times() {
-    if (!isset($_POST['security']) || !wp_verify_nonce($_POST['security'], 'amelia_appointment_nonce')) {
-        wp_send_json_error(array('message' => 'Varnostno preverjanje ni uspelo.'));
-        return;
-    }
-
-    global $wpdb;
-    
-    try {
-        $date = isset($_POST['date']) ? sanitize_text_field($_POST['date']) : '';
-        $location = isset($_POST['location']) ? sanitize_text_field($_POST['location']) : '';
-        $appointment_id = isset($_POST['appointment_id']) ? intval($_POST['appointment_id']) : 0;
-
-        if (empty($date) || empty($location)) {
-            wp_send_json_error(array('message' => 'Manjkajo potrebni podatki.'));
-            return;
-        }
-
-        // Razdeli lokacijo na dele
-        $location_parts = explode(' - ', $location);
-        if (count($location_parts) !== 3) {
-            wp_send_json_error(array('message' => 'Neveljaven format lokacije.'));
-            return;
-        }
-
-        $department_name = trim($location_parts[0]);
-        $room_name = trim($location_parts[1]);
-        $bed_name = trim($location_parts[2]);
-
-        // Pridobi serviceId in providerId
-        $location_query = $wpdb->prepare(
-            "SELECT 
-                s.id AS serviceId,
-                e.id AS providerId
-            FROM wp_amelia_services s
-            LEFT JOIN wp_amelia_categories c ON s.categoryId = c.id
-            LEFT JOIN wp_amelia_providers_to_services ps ON s.id = ps.serviceId
-            LEFT JOIN wp_amelia_users e ON ps.userId = e.id
-            WHERE e.firstName = %s 
-            AND c.name = %s
-            AND s.name = %s
-            LIMIT 1",
-            $department_name,
-            $room_name,
-            $bed_name
-        );
-
-        $location_info = $wpdb->get_row($location_query);
-        
-        if (!$location_info) {
-            wp_send_json_error(array('message' => 'Lokacija ni bila najdena.'));
-            return;
-        }
-
-        // Pridobi vse obstoječe termine za to lokacijo na ta dan
-        $timezone = new DateTimeZone('Europe/Ljubljana');
-        $utc_timezone = new DateTimeZone('UTC');
-        
-        $start_of_day = new DateTime($date . ' 00:00:00', $timezone);
-        $end_of_day = new DateTime($date . ' 23:59:59', $timezone);
-        
-        $start_of_day->setTimezone($utc_timezone);
-        $end_of_day->setTimezone($utc_timezone);
-
-        $appointments = $wpdb->get_results($wpdb->prepare(
-            "SELECT bookingStart, bookingEnd
-            FROM wp_amelia_appointments
-            WHERE serviceId = %d
-            AND providerId = %d
-            AND bookingStart >= %s
-            AND bookingStart < %s
-            AND id != %d
-            ORDER BY bookingStart",
-            $location_info->serviceId,
-            $location_info->providerId,
-            $start_of_day->format('Y-m-d H:i:s'),
-            $end_of_day->format('Y-m-d H:i:s'),
-            $appointment_id
-        ));
-
-        // Če urejamo obstoječ termin, pridobi njegov trenutni začetni čas
-        $current_start_time = null;
-        if ($appointment_id > 0) {
-            $current_appointment = $wpdb->get_row($wpdb->prepare(
-                "SELECT bookingStart
-                FROM wp_amelia_appointments
-                WHERE id = %d",
-                $appointment_id
-            ));
-            
-            if ($current_appointment) {
-                $start_utc = new DateTime($current_appointment->bookingStart, $utc_timezone);
-                $start_utc->setTimezone($timezone);
-                $current_start_time = $start_utc->format('H:i');
+        function getPatientAndTherapy(appt) {
+            const rawFirst = (appt.firstName ?? appt.first_name ?? (appt.customer && appt.customer.firstName) ?? '').toString().trim();
+            const rawLast  = (appt.lastName  ?? appt.last_name  ?? (appt.customer && appt.customer.lastName)  ?? '').toString().trim();
+            if (rawFirst || rawLast) {
+                return { patient: rawFirst, therapy: rawLast, therapyLower: rawLast.normalize('NFKD').toLowerCase() };
             }
-        }
+            const title = (appt.title || '').trim();
+            const parts = title ? title.split(/\s+/) : [];
+            if (!parts.length) return { patient: '', therapy: '', therapyLower: '' };
 
-        // Generiraj vse možne začetne čase (na 30 minut)
-        $available_times = array();
-        $occupied_periods = array();
-        
-        // Najprej pretvori vse obstoječe termine v lokalni čas in shrani kot zasedene periode
-        foreach ($appointments as $appointment) {
-            $appt_start = new DateTime($appointment->bookingStart, $utc_timezone);
-            $appt_end = new DateTime($appointment->bookingEnd, $utc_timezone);
-            
-            $appt_start->setTimezone($timezone);
-            $appt_end->setTimezone($timezone);
-            
-            $occupied_periods[] = array(
-                'start' => $appt_start->format('H:i'),
-                'end' => $appt_end->format('H:i')
-            );
-        }
-        
-        // Generiraj vse možne začetne čase (30-minutni intervali med 7:30 in 19:30)
-        $current_time = new DateTime($date . ' 07:30:00', $timezone);
-        $end_time = new DateTime($date . ' 19:30:00', $timezone);
-        
-        while ($current_time <= $end_time) {
-            $time_str = $current_time->format('H:i');
-            
-            // Če je to trenutni začetni čas termina, ga vedno dodaj v seznam
-            if ($time_str === $current_start_time) {
-                $available_times[] = $time_str;
-            } 
-            // Sicer preveri, da se ne prekriva z drugim terminom
-            else {
-                $is_available = true;
-                foreach ($occupied_periods as $period) {
-                    $period_start = $period['start'];
-                    $period_end = $period['end'];
-                    
-                    // Če je trenutni čas med začetnim in končnim časom zasedenega termina, ni na voljo
-                    if ($time_str >= $period_start && $time_str < $period_end) {
-                        $is_available = false;
-                        break;
-                    }
-                }
-                
-                if ($is_available) {
-                    $available_times[] = $time_str;
+            const idxNum = parts.findIndex(p => /\d+\/\d+/.test(p));
+            if (idxNum !== -1) {
+                if (idxNum === 0) {
+                    const patient = parts.slice(0, 3).join(' ').trim();
+                    const therapy = parts.slice(3).join(' ').trim();
+                    return { patient, therapy, therapyLower: therapy.normalize('NFKD').toLowerCase() };
+                } else {
+                    const patient = parts.slice(0, idxNum + 1).join(' ').trim();
+                    const therapy = parts.slice(idxNum + 1).join(' ').trim();
+                    return { patient, therapy, therapyLower: therapy.normalize('NFKD').toLowerCase() };
                 }
             }
-            
-            // Premakni se naprej za 30 minut
-            $current_time->modify('+30 minutes');
+            const patient = parts.slice(0, 2).join(' ').trim();
+            const therapy = parts.slice(2).join(' ').trim();
+            return { patient, therapy, therapyLower: therapy.normalize('NFKD').toLowerCase() };
         }
-        
-        wp_send_json_success(array(
-            'available_times' => $available_times
-        ));
 
-    } catch (Exception $e) {
-        error_log('Error in amelia_get_available_start_times: ' . $e->getMessage());
-        wp_send_json_error(array(
-            'message' => 'Napaka pri pridobivanju razpoložljivih začetnih časov: ' . $e->getMessage()
-        ));
-    }
+
+        function renderAppointments(data, selectedDate) {
+            if (!data.events || data.events.length === 0) {
+                output.textContent = 'Ni podatkov.';
+                return;
+            }
+
+            const sameDay = data.events.filter(ev => ev.start && ev.start.startsWith(selectedDate));
+
+            // odstrani vse termine, kjer je EX samostojno in vse dodamjanic komentarje
+            const filtered = sameDay.filter(ev => {
+                const title = String(ev.title || '');
+                return !(/\bEX\s*\.?\b/i.test(title) || /dodamjanic/i.test(title));
+            });
+
+            if (filtered.length === 0) {
+                output.textContent = 'Ni terminov za izbrani datum.';
+                return;
+            }
+
+            // Sort: čas → terapija → soba → postelja
+            filtered.sort((a, b) => {
+                // 1) čas
+                const ta = new Date(a.start).getTime();
+                const tb = new Date(b.start).getTime();
+                if (ta !== tb) return ta - tb;
+
+                // 2) terapija (iz lastName; fallback na razbito iz title)
+                const tA = getPatientAndTherapy(a).therapyLower.normalize('NFKD');
+                const tB = getPatientAndTherapy(b).therapyLower.normalize('NFKD');
+
+                if (tA !== tB) return tA.localeCompare(tB);
+
+                // 3) soba
+                const pa = a.resourceId ? a.resourceId.split(' - ') : [];
+                const pb = b.resourceId ? b.resourceId.split(' - ') : [];
+                const roomA = pa[1] || '';
+                const roomB = pb[1] || '';
+                if (roomA !== roomB) return roomA.localeCompare(roomB);
+
+                // 4) postelja
+                const bedA = pa[2] || '';
+                const bedB = pb[2] || '';
+                return bedA.localeCompare(bedB);
+            });
+
+
+            // Group by start time
+            const grouped = {};
+            filtered.forEach(appt => {
+                const time = new Date(appt.start).toLocaleTimeString('sl-SI', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+                if (!grouped[time]) grouped[time] = [];
+                grouped[time].push(appt);
+            });
+
+            // Build HTML table
+            let html = '';
+            let prevTime = null;
+
+            Object.keys(grouped).forEach(time => {
+                if (prevTime !== null) html += '<div style="height: 15px;"></div>';
+                prevTime = time;
+
+                html += `<table class="amelia-appointments-table">
+                            <thead>
+                                <tr>
+                                    <th>Čas</th>
+                                    <th>Pacient</th>
+                                    <th>Terapija</th>
+                                    <th>Soba</th>
+                                    <th>Postelja</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+
+                grouped[time].forEach(appt => {
+                    const startTime = new Date(appt.start).toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit', hour12: false });
+                    const parts = appt.resourceId ? appt.resourceId.split(' - ') : [];
+                    const room  = parts[1] || '—';
+                    const bed   = parts[2] || '—';
+
+                    // razbij title na pacienta in terapijo
+                    const { patient, therapy } = getPatientAndTherapy(appt);
+
+                    html += `<tr>
+                                <td>${startTime}</td>
+                                <td>${patient}</td>
+                                <td>${therapy}</td>
+                                <td>${room}</td>
+                                <td>${bed}</td>
+                            </tr>`;
+
+                });
+
+                html += '</tbody></table>';
+            });
+
+            output.innerHTML = html;
+        }
+
+        // Preload today's appointments into cache
+        const preloadDate = localStorage.getItem('selectedDate') || new Date().toISOString().split('T')[0];
+
+        fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                action: 'amelia_get_appointments',
+                selectedDate: preloadDate
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            appointmentCache     = data;
+            appointmentCacheDate = preloadDate;
+        })
+        .catch(() => {});
+
+        // Show modal and load appointments
+        showBtn.addEventListener('click', function () {
+            openModal();
+
+            const selectedDate = localStorage.getItem('selectedDate') || new Date().toISOString().split('T')[0];
+            const dateObj = new Date(selectedDate);
+            const formattedDate = `${dateObj.getDate()}. ${dateObj.getMonth() + 1}. ${dateObj.getFullYear()}`;
+            selectedDateText.textContent = formattedDate;
+
+            if (appointmentCache && appointmentCacheDate === selectedDate) {
+                renderAppointments(appointmentCache, selectedDate);
+            } else {
+                output.textContent = 'Nalagam termine...';
+
+                fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        action: 'amelia_get_appointments',
+                        selectedDate: selectedDate
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    appointmentCache = data;
+                    appointmentCacheDate = selectedDate;
+                    renderAppointments(data, selectedDate);
+                })
+                .catch(() => {
+                    output.textContent = 'Napaka pri pridobivanju podatkov.';
+                });
+            }
+        });
+
+        // Close modal
+        closeBtn.addEventListener('click', closeModal);
+
+        // Print functionality
+        printBtn.addEventListener('click', function () {
+            const printContents = document.getElementById('ameliaAppointmentsContent').innerHTML;
+            const selectedDate  = document.getElementById('selectedDateText').textContent;
+
+            const printWindow = window.open('', 'print', 'height=600,width=800,menubar=no,toolbar=no,location=no,status=no');
+            printWindow.document.write('<html><head><title>Dnevni razpored</title><style>');
+            printWindow.document.write(`
+                @page { margin: 20mm; }
+                body {
+                    font-family: Arial, sans-serif;
+                    color: #222;
+                    margin: 10mm;
+                }
+                h2 {
+                    text-align: center;
+                    margin-bottom: 30px;
+                }
+                table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-bottom: 20px;
+                    table-layout: fixed;
+                }
+                th:nth-child(1), td:nth-child(1) { width: 10%; } /* Čas */
+                th:nth-child(2), td:nth-child(2) { width: 20%; } /* Pacient */
+                th:nth-child(3), td:nth-child(3) { width: 40%; } /* Terapija */
+                th:nth-child(4), td:nth-child(4) { width: 15%; } /* Soba */
+                th:nth-child(5), td:nth-child(5) { width: 15%; } /* Postelja */
+
+                th, td {
+                    border: 1px solid #ccc;
+                    padding: 6px 10px;
+                    text-align: left;
+                    font-size: 14px;
+                    overflow: hidden;
+                    white-space: nowrap;
+                    text-overflow: ellipsis;
+                }
+                th {
+                    background-color: #f0f0f0;
+                    font-weight: 600;
+                }
+            `);
+            printWindow.document.write('</style></head><body>');
+            printWindow.document.write('<h2>Termini za: ' + selectedDate + '</h2>');
+            printWindow.document.write(printContents);
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
+            printWindow.close();
+        });
+    });
+    </script>
+
+    <?php
+    return ob_get_clean();
 }
+add_shortcode('dnevni', 'dnevni_razpored');
 
-add_action('wp_ajax_amelia_get_available_start_times', 'amelia_get_available_start_times');
+// Shortcode for weekly schedule - tedenski razpored za pripravo zdravil v lekarni
+function tedenski_razpored() {
+    if (!is_user_logged_in()) {
+        return '...';
+    }
+
+    ob_start(); ?>
+
+    <!-- Gumb za tedenski razpored -->
+    <button id="ameliaWeeklyShowBtn"
+            style="float: right; margin-left: 10px; padding-bottom: 8px; padding-top: 8px; background: #07aa60ff;">
+        Tedenski razpored
+    </button>
+
+    <!-- Overlay -->
+    <div id="modalOverlayWeekly" style="
+        display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9998;
+    "></div>
+
+    <!-- Modal -->
+    <div id="ameliaWeeklyModal" style="
+        display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%);
+        background:#fff; padding:10px; border:1px solid #ccc; z-index:9999;
+        max-height:90vh; width:90%; max-width:1000px; box-sizing:border-box; border-radius:8px;
+        font-family:Arial, sans-serif; color:#222; overflow:hidden;
+    ">
+        <!-- Header -->
+        <div id="ameliaWeeklyHeader" style="
+            position:sticky; top:0; background:#fff; padding-bottom:20px; margin:10px 0; font-weight:bold;
+            font-size:18px; border-bottom:1px solid #ccc; z-index:1;
+        ">
+            Teden: <span id="selectedWeekText">...</span>
+
+            <!-- Gumb print -->
+            <button id="ameliaWeeklyPrintBtn" aria-label="Print" style="
+                position:fixed; right:55px; background:#4968ff; border:none; color:#fff; font-weight:bold;
+                font-size:14px; width:69px; height:32px; border-radius:4px; cursor:pointer; z-index:10000; line-height:32px; text-align:center; padding:0;
+            ">Natisni</button>
+
+            <!-- Gumb close -->
+            <button id="ameliaWeeklyCloseBtn" aria-label="Zapri" style="
+                position:fixed; right:15px; background:#6b6b6b; border:none; color:#fff; font-weight:bold;
+                font-size:22px; width:32px; height:32px; border-radius:50%; cursor:pointer; z-index:10000; line-height:32px; text-align:center; padding:0;
+            ">&times;</button>
+        </div>
+
+        <!-- Vsebina -->
+        <div id="ameliaWeeklyContent" style="max-height:calc(80vh - 70px); overflow-y:auto; padding:0 8px 8px;">
+            Nalagam tedenski razpored...
+        </div>
+    </div>
+
+    <!-- Izgled tedenskega razporeda -->
+    <style>
+        .amelia-week-day-block { margin:16px 0 24px 0; }
+        .amelia-week-day-header {
+            position: sticky; top: 0; background: white;
+            padding: 8px 0; font-weight: 700; font-size: 16px; border-bottom: 1px solid #ccc;
+        }
+        .amelia-weekly-table {
+            width: 100%; border-collapse: collapse; margin-bottom: 20px; table-layout: fixed;
+        }
+        .amelia-weekly-table th, .amelia-weekly-table td {
+            border: 1px solid #ccc; padding: 6px 10px; text-align: left; vertical-align: middle;
+            font-size: 14px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+        }
+        .amelia-weekly-table th { background-color: #f0f0f0; font-weight: 600; }
+        .amelia-weekly-table th:nth-child(1), .amelia-weekly-table td:nth-child(1) { width: 6%; }  /* Čas */
+        .amelia-weekly-table th:nth-child(2), .amelia-weekly-table td:nth-child(2) { width: 35%; } /* Pacient */
+        .amelia-weekly-table th:nth-child(3), .amelia-weekly-table td:nth-child(3) { width: 37%; } /* Terapija */
+        .amelia-weekly-table th:nth-child(4), .amelia-weekly-table td:nth-child(4) { width: 12%; } /* Soba */
+        .amelia-weekly-table th:nth-child(5), .amelia-weekly-table td:nth-child(5) { width: 10%; } /* Postelja */
+        body.no-scroll { overflow: hidden; }
+    </style>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // --- elementi
+        const weeklyBtn   = document.getElementById('ameliaWeeklyShowBtn');
+        const modal       = document.getElementById('ameliaWeeklyModal');
+        const overlay     = document.getElementById('modalOverlayWeekly');
+        const output      = document.getElementById('ameliaWeeklyContent');
+        const closeBtn    = document.getElementById('ameliaWeeklyCloseBtn');
+        const printBtn    = document.getElementById('ameliaWeeklyPrintBtn');
+        const weekTextEl  = document.getElementById('selectedWeekText');
+
+        // --- modal open/close
+        function openModal() {
+            overlay.style.display = 'block';
+            modal.style.display = 'block';
+            document.body.classList.add('no-scroll');
+        }
+        function closeModal() {
+            modal.style.display = 'none';
+            overlay.style.display = 'none';
+            document.body.classList.remove('no-scroll');
+        }
+        overlay.addEventListener('click', closeModal);
+        document.addEventListener('keydown', function(e){
+            if (e.key === 'Escape' && modal.style.display === 'block') closeModal();
+        });
+        closeBtn.addEventListener('click', closeModal);
+
+        // --- helperji datumi
+        function toISODateLocal(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+        // Pridobi obseg tedna (pon-pet) v ISO formatu
+        function getWeekRangeISO(dateStr) {
+            const d = new Date(dateStr);
+            const jsDay = d.getDay();              // 0..6
+            const diffToMon = (jsDay + 6) % 7;     // pon=0, tor=1, ..., ned=6
+            const mon = new Date(d); mon.setDate(d.getDate() - diffToMon);
+            const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+            return { mon: toISODateLocal(mon), fri: toISODateLocal(fri) };
+        }
+        // Format datuma v slovenščini
+        function formatDateSl(dateStr) {
+            const d = new Date(dateStr + 'T00:00:00');
+            return `${d.getDate()}. ${d.getMonth() + 1}. ${d.getFullYear()}`;
+        }
+        function slWeekday(dateStr) {
+            return new Intl.DateTimeFormat('sl-SI', { weekday: 'short' }).format(new Date(dateStr + 'T00:00:00'));
+        }
+
+        // Locevanje info na pacienta in terapijo
+        function getPatientAndTherapy(appt) {
+            const rawFirst = (appt.firstName ?? appt.first_name ?? (appt.customer && appt.customer.firstName) ?? '').toString().trim();
+            const rawLast  = (appt.lastName  ?? appt.last_name  ?? (appt.customer && appt.customer.lastName)  ?? '').toString().trim();
+            if (rawFirst || rawLast) {
+                return { patient: rawFirst, therapy: rawLast, therapyLower: rawLast.normalize('NFKD').toLowerCase() };
+            }
+            const title = (appt.title || '').trim();
+            const parts = title ? title.split(/\s+/) : [];
+            if (!parts.length) return { patient: '', therapy: '', therapyLower: '' };
+
+            const idxNum = parts.findIndex(p => /\d+\/\d+/.test(p));
+            if (idxNum !== -1) {
+                if (idxNum === 0) {
+                    const patient = parts.slice(0, 3).join(' ').trim();
+                    const therapy = parts.slice(3).join(' ').trim();
+                    return { patient, therapy, therapyLower: therapy.normalize('NFKD').toLowerCase() };
+                } else {
+                    const patient = parts.slice(0, idxNum + 1).join(' ').trim();
+                    const therapy = parts.slice(idxNum + 1).join(' ').trim();
+                    return { patient, therapy, therapyLower: therapy.normalize('NFKD').toLowerCase() };
+                }
+            }
+            const patient = parts.slice(0, 2).join(' ').trim();
+            const therapy = parts.slice(2).join(' ').trim();
+            return { patient, therapy, therapyLower: therapy.normalize('NFKD').toLowerCase() };
+        }
+
+        // --- fetch enega dne
+        function fetchDay(dateISO) {
+            return fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ action: 'amelia_get_appointments', selectedDate: dateISO })
+            }).then(r => r.json()).catch(() => ({ events: [] }));
+        }
+
+        // --- render tedna (pon–pet)
+        function renderWeeklyAppointments(allEvents, daysISO) {
+            // razdeli po dnevih
+            const byDay = new Map(daysISO.map(d => [d, []]));
+            (allEvents.events || []).forEach(ev => {
+                if (!ev.start) return;
+                const key = ev.start.slice(0,10);
+                if (byDay.has(key)) byDay.get(key).push(ev);
+            });
+
+            // Sort po dnevu --> najprej po urah nato po terapiji in nato po sobah ter posteljah
+            const prepareDay = (list) => {
+                const filtered = list.filter(ev => {
+                    const title = String(ev.title || '');
+                    return !(/\bEX\s*\.?\b/i.test(title) || /dodamjanic/i.test(title)); // dodamjanic komentarje ignoriramo ker za lekarno niso relevantni
+                });
+
+                filtered.sort((a, b) => {
+                    const ta = new Date(a.start).getTime();
+                    const tb = new Date(b.start).getTime();
+                    if (ta !== tb) return ta - tb;
+
+                    const tA = (getPatientAndTherapy(a).therapyLower || '');
+                    const tB = (getPatientAndTherapy(b).therapyLower || '');
+                    if (tA !== tB) return tA.localeCompare(tB);
+
+                    const pa = a.resourceId ? a.resourceId.split(' - ') : [];
+                    const pb = b.resourceId ? b.resourceId.split(' - ') : [];
+                    const roomA = pa[1] || '';
+                    const roomB = pb[1] || '';
+                    if (roomA !== roomB) return roomA.localeCompare(roomB);
+
+                    const bedA = pa[2] || '';
+                    const bedB = pb[2] || '';
+                    return bedA.localeCompare(bedB);
+                });
+
+                // grupiranje po urah
+                const byTime = {};
+                filtered.forEach(appt => {
+                    const time = new Date(appt.start).toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit', hour12: false });
+                    if (!byTime[time]) byTime[time] = [];
+                    byTime[time].push(appt);
+                });
+                return byTime;
+            };
+            
+            // Generiranje HTML
+            let html = '';
+            daysISO.forEach(dayISO => {
+                const grouped = prepareDay(byDay.get(dayISO) || []);
+                html += `<div class="amelia-week-day-block">
+                    <div class="amelia-week-day-header">${slWeekday(dayISO)} – ${formatDateSl(dayISO)}</div>`;
+
+                const times = Object.keys(grouped);
+                if (times.length === 0) {
+                    html += `<div style="padding:8px; color:#666;">Ni terminov.</div></div>`;
+                    return;
+                }
+
+                let prevTime = null;
+                times.forEach(time => {
+                    if (prevTime !== null) html += '<div style="height:12px;"></div>';
+                    prevTime = time;
+
+                    html += `<table class="amelia-weekly-table">
+                        <thead>
+                            <tr>
+                                <th>Čas</th>
+                                <th>Pacient</th>
+                                <th>Terapija</th>
+                                <th>Soba</th>
+                                <th>Postelja</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+
+                    grouped[time].forEach(appt => {
+                        const startTime = new Date(appt.start).toLocaleTimeString('sl-SI', { hour: '2-digit', minute: '2-digit', hour12: false });
+                        const parts = appt.resourceId ? appt.resourceId.split(' - ') : [];
+                        const room  = parts[1] || '—';
+                        const bed   = parts[2] || '—';
+                        const { patient, therapy } = getPatientAndTherapy(appt);
+
+                        html += `<tr>
+                            <td>${startTime}</td>
+                            <td>${patient || ''}</td>
+                            <td>${therapy || ''}</td>
+                            <td>${room}</td>
+                            <td>${bed}</td>
+                        </tr>`;
+                    });
+
+                    html += `</tbody></table>`;
+                });
+
+                html += `</div>`;
+            });
+
+            output.innerHTML = html;
+        }
+
+        weeklyBtn.addEventListener('click', function () {
+            openModal();
+
+            const selectedDate = localStorage.getItem('selectedDate') || new Date().toISOString().split('T')[0];
+            const { mon, fri } = getWeekRangeISO(selectedDate);
+            weekTextEl.textContent = `${formatDateSl(mon)} – ${formatDateSl(fri)}`;
+
+            // pon–pet
+            const days = [];
+            let d = new Date(mon + 'T00:00:00');
+            for (let i = 0; i < 5; i++) { days.push(toISODateLocal(d)); d.setDate(d.getDate() + 1); }
+
+            output.textContent = 'Nalagam tedenski razpored...';
+
+            Promise.all(days.map(fetchDay))
+                .then(responses => {
+                    const events = [];
+                    responses.forEach(r => { if (r && r.events) events.push(...r.events); });
+                    renderWeeklyAppointments({ events }, days);
+                })
+                .catch(() => { output.textContent = 'Napaka pri pridobivanju podatkov.'; });
+        });
+
+        // Print funkcionalnost
+        printBtn.addEventListener('click', function () {
+            const printContents = document.getElementById('ameliaWeeklyContent').innerHTML;
+            const weekText  = document.getElementById('selectedWeekText').textContent;
+
+            const printWindow = window.open('', 'print', 'height=600,width=800,menubar=no,toolbar=no,location=no,status=no');
+            printWindow.document.write('<html><head><title>Tedenski razpored</title><style>');
+            printWindow.document.write(`
+                @page { margin: 20mm; }
+                body { font-family: Arial, sans-serif; color:#222; margin:10mm; }
+                h2 { text-align:center; margin-bottom: 30px; }
+                table { width:100%; border-collapse: collapse; margin-bottom:20px; table-layout: fixed; }
+                th:nth-child(1), td:nth-child(1) { width: 10%; } /* Čas */
+                th:nth-child(2), td:nth-child(2) { width: 20%; } /* Pacient */
+                th:nth-child(3), td:nth-child(3) { width: 40%; } /* Terapija */
+                th:nth-child(4), td:nth-child(4) { width: 15%; } /* Soba */
+                th:nth-child(5), td:nth-child(5) { width: 15%; } /* Postelja */
+                th, td { border:1px solid #ccc; padding:6px 10px; text-align:left; font-size:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+                th { background:#f0f0f0; font-weight:600; }
+                .amelia-week-day-header { font-weight:700; font-size:16px; margin:12px 0 4px 0; }
+            `);
+            printWindow.document.write('</style></head><body>');
+            printWindow.document.write('<h2>Tedenski razpored: ' + weekText + '</h2>');
+            printWindow.document.write(printContents);
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            printWindow.focus();
+            printWindow.print();
+            printWindow.close();
+        });
+    });
+    </script>
+
+    <?php
+    return ob_get_clean();
+}
+add_shortcode('tedenski', 'tedenski_razpored');
+
